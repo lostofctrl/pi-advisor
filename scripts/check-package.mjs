@@ -38,6 +38,7 @@ const expectedFiles = [
   "src/config.ts",
   "src/config/args.ts",
   "src/config/defaults.ts",
+  "src/config/paths.ts",
   "src/config/schema.ts",
   "src/config/state.ts",
   "src/config/storage.ts",

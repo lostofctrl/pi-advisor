@@ -8,7 +8,9 @@ This fork resolves `advisor.json` in this order:
 
 1. `PI_ADVISOR_CONFIG_PATH` — an explicit absolute path. A relative or empty value is rejected with an error, never silently ignored.
 2. `<agentDir>/pi-web/advisor.json` — the namespaced default, so this bundle (loaded by Pi Web) does not share configuration with Pi CLI's official package.
-3. `<agentDir>/advisor.json` — first-run fallback: used only while the namespaced file does not exist yet and the legacy shared file does, so existing installations keep their current file until the namespaced one is created.
+3. `<agentDir>/advisor.json` — legacy fallback: used only while the namespaced file does not exist yet and the legacy shared file does. Reads _and_ writes stay on the legacy file in that state, so an existing installation keeps sharing configuration with Pi CLI until it migrates.
+
+To migrate, create the namespaced file (for example `mkdir -p <agentDir>/pi-web && mv <agentDir>/advisor.json <agentDir>/pi-web/advisor.json`) and restart the session; from then on the namespaced file wins even if the legacy file still exists. A handler placed plaintext TypeSafe key (`typesafe_api_key`) moves with the file.
 
 Project-local `advisor.json` files (see below) are unaffected by the override. `/advisor-settings` uses Pi's compact searchable settings list: type to fuzzy-search a control, press Enter or Space to change it, and every valid change is saved immediately.
 
