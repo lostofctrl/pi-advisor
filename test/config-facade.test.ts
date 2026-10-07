@@ -91,13 +91,14 @@ describe("Config Module", () => {
     expect(model).toBe("gpt-4");
   });
 
-  test("parseArgs should parse model and context limit tokens", () => {
+  test("parseArgs ignores legacy Executor tokens and parses Advisor/context options", () => {
+    const executorBefore = executorRef;
     expect(
       parseArgs(
         "executor=openai/gpt-4 advisor=anthropic/claude-3 contextMaxChars=30000"
       )
     ).toBeUndefined();
-    expect(executorRef).toBe("openai/gpt-4");
+    expect(executorRef).toBe(executorBefore);
     expect(advisorRef).toBe("anthropic/claude-3");
     expect(contextMaxCharsRef).toBe(30_000);
   });

@@ -293,7 +293,7 @@ describe("same-model Advisor suppression", () => {
                   { matches: () => false },
                   resolve
                 );
-                if (picker === 1) {
+                if (picker === 0) {
                   for (const key of "other") {
                     list.handleInput(key);
                   }
@@ -332,28 +332,28 @@ describe("same-model Advisor suppression", () => {
         expect(pi.getActiveTools()).toContain("ask_advisor");
         expect(
           notices.filter((note) => note.startsWith("Advisor disabled:"))
-        ).toHaveLength(1);
+        ).toHaveLength(0);
         events.get("model_select")?.(
           { model: { id: "other", provider: "provider" }, source: "cycle" },
           ctx
         );
         expect(
           notices.filter((note) => note.startsWith("Advisor re-enabled:"))
-        ).toHaveLength(1);
+        ).toHaveLength(0);
         events.get("model_select")?.(
           { model: { id: "advisor", provider: "provider" }, source: "restore" },
           ctx
         );
         expect(
           notices.filter((note) => note.startsWith("Advisor disabled:"))
-        ).toHaveLength(2);
+        ).toHaveLength(1);
         events.get("model_select")?.(
           { model: { id: "advisor", provider: "provider" }, source: "set" },
           ctx
         );
         expect(
           notices.filter((note) => note.startsWith("Advisor disabled:"))
-        ).toHaveLength(2);
+        ).toHaveLength(1);
       }
     );
   });

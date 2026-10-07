@@ -1,3 +1,7 @@
+// src/child-session.ts
+var effectiveExecutorRef = (ctx) => ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "";
+var effectiveExecutorEffort = (ctx) => ctx.thinkingLevel;
+
 // src/config/types.ts
 import {
   DEFAULT_MAX_BYTES as PI_DEFAULT_MAX_BYTES,
@@ -294,16 +298,6 @@ var splitRef = (ref) => {
   const i = ref.indexOf("/");
   return i === -1 ? ["openai-codex", ref] : [ref.slice(0, i), ref.slice(i + 1)];
 };
-
-// src/child-session.ts
-var isMarkedSubagent = () => process.env.PI_SUBAGENT_CHILD === "1";
-var effectiveExecutorRef = (ctx) => {
-  if (isMarkedSubagent() && ctx.model) {
-    return `${ctx.model.provider}/${ctx.model.id}`;
-  }
-  return executorRef;
-};
-var effectiveExecutorEffort = (ctx) => isMarkedSubagent() ? ctx.thinkingLevel : executorEffortRef;
 
 // src/content-utils.ts
 var isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -845,16 +839,12 @@ var validateConfig = (value, path = "advisor.json") => {
 // src/config/args.ts
 var ARGUMENT_WHITESPACE = /\s+/u;
 var parseArgs = (args) => {
-  let nextExecutor = executorRef;
   let nextAdvisor = advisorRef;
   let nextContextMaxChars = contextMaxCharsRef;
   for (const token of args.trim().split(ARGUMENT_WHITESPACE).filter(Boolean)) {
     const separator = token.indexOf("=");
     const key = separator === -1 ? token : token.slice(0, separator);
     const value = separator === -1 ? undefined : token.slice(separator + 1);
-    if (key === "executor" && value) {
-      nextExecutor = value;
-    }
     if (key === "advisor" && value) {
       nextAdvisor = value;
     }
@@ -866,7 +856,6 @@ var parseArgs = (args) => {
       nextContextMaxChars = parsed;
     }
   }
-  setExecutorRef(nextExecutor);
   setAdvisorRef(nextAdvisor);
   setContextMaxCharsRef(nextContextMaxChars);
 };
@@ -1231,7 +1220,6 @@ var hasModelOverride = (args, key) => args.trim().split(ARGUMENT_WHITESPACE2).so
   const [tokenKey, value] = token.split("=");
   return tokenKey === key && Boolean(value);
 });
-var hasExecutorOverride = (args) => hasModelOverride(args, "executor");
 var hasAdvisorOverride = (args) => hasModelOverride(args, "advisor");
 var CONTEXT_PRESETS = [
   {
@@ -3720,7 +3708,7 @@ var curateAdvisorConversation = async (ctx, legacyConversation, signal, onScout,
         omittedBeforeScout: 0,
         selectedCount: 0
       },
-      model: executorRef,
+      model: effectiveExecutorRef(ctx),
       ok: false
     };
     onScout?.({ outcome: scout, type: "fallback" });
@@ -4462,7 +4450,7 @@ var scoutDetailsFromEvent = (event, previous) => {
   }
   if (event.type === "cancelled") {
     return {
-      model: previous ? previous.model : executorRef,
+      model: previous?.model ?? "",
       status: "cancelled"
     };
   }
@@ -5194,8 +5182,6 @@ class CommandRuntime {
   requestManualRender = requestManualRender;
   scoutStatus;
   manualProgressSequence = 0;
-  pendingExecutorModelRef;
-  suppressModelSelectionSync = false;
   lastSameModelDisabled;
   constructor(pi, dependencies = {}) {
     this.pi = pi;
@@ -5218,21 +5204,13 @@ class CommandRuntime {
     if (disabled && this.lastSameModelDisabled !== true) {
       notify(ctx, sameModelAdvisorNotice, "info");
     } else if (!disabled && this.lastSameModelDisabled === true) {
-      notify(ctx, "Advisor re-enabled: executor and advisor models differ.", "info");
+      notify(ctx, "Advisor re-enabled: current chat and Advisor models differ.", "info");
     }
     this.lastSameModelDisabled = disabled;
   }
   nextManualProgressId() {
     this.manualProgressSequence += 1;
     return `manual-${this.manualProgressSequence}`;
-  }
-  async setExecutorModel(model) {
-    this.suppressModelSelectionSync = true;
-    try {
-      return await this.pi.setModel(model);
-    } finally {
-      this.suppressModelSelectionSync = false;
-    }
   }
   updateAdvisorUsageStatus(ctx) {
     uiAction(ctx, (ui) => ui.setStatus("advisor-usage", getAdvisorSettings().showUsageFooter ? this.advisorSessionState.usageStatus() : undefined));
@@ -5251,32 +5229,37 @@ var loadCommandConfig = (ctx) => {
     return false;
   }
 };
-var prepareActivationModels = async (runtime, ctx, announce, executorOverride, advisorOverride) => {
-  const persisted = getPersistedModelRefs();
+var prepareActivationModels = async (ctx, announce, advisorOverride) => {
+  const currentModelRef2 = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+  if (!currentModelRef2) {
+    notify(ctx, "Select a chat model before enabling Advisor flow", "error");
+    return;
+  }
+  const storedRefs = getPersistedModelRefs();
+  const persisted = { ...storedRefs, executor: currentModelRef2 };
   const availableRefs = getAvailableModelRefs(ctx);
   const availableRefSet = availableRefs ? new Set(availableRefs) : undefined;
-  const explicitError = getExplicitModelError(ctx, executorRef, "Executor", executorOverride, availableRefSet) ?? getExplicitModelError(ctx, advisorRef, "Advisor", advisorOverride, availableRefSet);
+  const explicitError = getExplicitModelError(ctx, advisorRef, "Advisor", advisorOverride, availableRefSet);
   if (explicitError) {
     notify(ctx, explicitError, "error");
     return;
   }
-  const plan = planActivationModels(ctx, executorRef, advisorRef, runtime.pendingExecutorModelRef, persisted, executorOverride, advisorOverride, availableRefSet);
-  setExecutorRef(plan.pendingExecutor ?? executorRef);
-  if (!(plan.selectExecutor || plan.selectAdvisor)) {
+  const plan = planActivationModels(ctx, currentModelRef2, advisorRef, undefined, persisted, false, advisorOverride, availableRefSet);
+  if (!plan.selectAdvisor) {
     return { pendingExecutor: plan.pendingExecutor, pickedModels: false };
   }
   if (!announce) {
-    notify(ctx, "Advisor models are not configured or available. Run /advisor to choose them.", "error");
+    notify(ctx, "Advisor model is not configured or available. Run /advisor to choose it.", "error");
     return;
   }
   const selection = await selectAdvisorModels(ctx, {
     advisor: advisorOverride || persisted.advisor ? advisorRef : "",
     advisorEffort: advisorEffortRef,
     advisorFallbackModel: advisorFallbackModelRef,
-    executor: executorOverride || plan.pendingExecutor || persisted.executor ? executorRef : "",
-    executorEffort: executorEffortRef,
+    executor: currentModelRef2,
+    executorEffort: undefined,
     selectAdvisor: plan.selectAdvisor,
-    selectExecutor: plan.selectExecutor
+    selectExecutor: false
   });
   if (!selection) {
     return;
@@ -5284,18 +5267,14 @@ var prepareActivationModels = async (runtime, ctx, announce, executorOverride, a
   setAdvisorRef(selection.advisor);
   setAdvisorFallbackModelRef(selection.advisorFallbackModel);
   setAdvisorEffortRef(selection.advisorEffort);
-  setExecutorRef(selection.executor);
-  setExecutorEffortRef(selection.executorEffort);
   return { pendingExecutor: plan.pendingExecutor, pickedModels: true };
 };
 
 // src/commands/activation.ts
-var resolveActivationModels = async (runtime, ctx) => {
-  const executor = findConfiguredModel(ctx, executorRef);
+var resolveActivationModels = async (ctx) => {
+  const executor = ctx.model;
   if (!executor) {
-    return {
-      error: executorRef ? `Executor model not found: ${executorRef}` : "Executor model not configured"
-    };
+    return { error: "Select a chat model before enabling Advisor flow" };
   }
   const advisor = findConfiguredModel(ctx, advisorRef);
   if (!advisor) {
@@ -5307,9 +5286,6 @@ var resolveActivationModels = async (runtime, ctx) => {
   if (!(advisorAuth.ok && advisorAuth.apiKey)) {
     return { error: `No API key for Advisor ${advisorRef}` };
   }
-  if (!isMarkedSubagent() && !await runtime.setExecutorModel(executor)) {
-    return { error: `No API key for Executor ${executorRef}` };
-  }
   return {};
 };
 var activateAdvisor = async (runtime, args, ctx, announce = true) => {
@@ -5319,18 +5295,13 @@ var activateAdvisor = async (runtime, args, ctx, announce = true) => {
   const previous = {
     advisor: advisorRef,
     advisorEffort: advisorEffortRef,
-    contextMaxChars: contextMaxCharsRef,
-    executor: executorRef,
-    executorEffort: executorEffortRef
+    contextMaxChars: contextMaxCharsRef
   };
   const restoreRefs = () => {
     setAdvisorRef(previous.advisor);
     setAdvisorEffortRef(previous.advisorEffort);
     setContextMaxCharsRef(previous.contextMaxChars);
-    setExecutorRef(previous.executor);
-    setExecutorEffortRef(previous.executorEffort);
   };
-  const executorOverride = hasExecutorOverride(args);
   const advisorOverride = hasAdvisorOverride(args);
   const argumentError = parseArgs(args);
   if (argumentError) {
@@ -5338,23 +5309,19 @@ var activateAdvisor = async (runtime, args, ctx, announce = true) => {
     notify(ctx, argumentError, "error");
     return;
   }
-  const prepared = await prepareActivationModels(runtime, ctx, announce, executorOverride, advisorOverride);
+  const prepared = await prepareActivationModels(ctx, announce, advisorOverride);
   if (!prepared) {
     restoreRefs();
     return;
   }
-  const { error } = await resolveActivationModels(runtime, ctx);
+  const { error } = await resolveActivationModels(ctx);
   if (error) {
     restoreRefs();
     notify(ctx, error, "error");
     return;
   }
-  if (args.trim() || prepared.pickedModels || prepared.pendingExecutor) {
-    saveConfig(ctx, { persistAdvisor: true, persistExecutor: true });
-  }
-  runtime.pendingExecutorModelRef = undefined;
-  if (executorEffortRef && !isMarkedSubagent()) {
-    runtime.pi.setThinkingLevel(executorEffortRef);
+  if (args.trim() || prepared.pickedModels) {
+    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
   }
   if (!runtime.flowEnabled()) {
     runtime.pi.setActiveTools([
@@ -5363,7 +5330,7 @@ var activateAdvisor = async (runtime, args, ctx, announce = true) => {
       "record_advisor_outcome"
     ]);
   }
-  const activeModel = isMarkedSubagent() ? ctx.model : findConfiguredModel(ctx, executorRef);
+  const activeModel = ctx.model;
   runtime.updateSameModelNotice(ctx, activeModel);
   if (announce) {
     const activeExecutorRef = effectiveExecutorRef(ctx);
@@ -5377,7 +5344,6 @@ Advisor flow ${sameModelAdvisorDisabled(ctx, activeModel) ? "configured" : "read
 // src/commands/lifecycle.ts
 var registerCommandLifecycle = (runtime, activateAdvisor2) => {
   runtime.pi.on("session_start", async (_event, ctx) => {
-    runtime.pendingExecutorModelRef = undefined;
     runtime.resetSameModelNotice();
     try {
       loadConfig(ctx);
@@ -5392,27 +5358,8 @@ var registerCommandLifecycle = (runtime, activateAdvisor2) => {
     }
   });
   runtime.pi.on("model_select", (event, ctx) => {
-    if (!runtime.suppressModelSelectionSync) {
-      runtime.updateSameModelNotice(ctx, event.model);
-    }
-    if (event.source !== "set" || runtime.suppressModelSelectionSync || isMarkedSubagent()) {
-      return;
-    }
-    const selected = `${event.model.provider}/${event.model.id}`;
-    if (!runtime.flowEnabled()) {
-      runtime.pendingExecutorModelRef = selected;
-      return;
-    }
-    runtime.pendingExecutorModelRef = undefined;
-    if (selected === executorRef) {
-      return;
-    }
-    const persisted = getPersistedModelRefs();
-    setExecutorRef(selected);
-    saveConfig(ctx, {
-      persistAdvisor: Boolean(persisted.advisor),
-      persistExecutor: true
-    });
+    setExecutorRef(`${event.model.provider}/${event.model.id}`);
+    runtime.updateSameModelNotice(ctx, event.model);
   });
   runtime.pi.on("session_shutdown", (_event, ctx) => {
     if (ctx.hasUI) {
@@ -6995,40 +6942,41 @@ var registerManualCommand = (runtime) => {
 // src/commands/model-commands.ts
 var registerModelCommands = (runtime) => {
   runtime.pi.registerCommand("advisor", {
-    description: "Enable the Executor/Advisor flow and switch to the configured or explicitly selected Executor model; accepts contextMaxChars=N",
+    description: "Enable Advisor flow using the current chat model as Executor; accepts contextMaxChars=N",
     handler: (args, ctx) => activateAdvisor(runtime, args, ctx)
   });
   runtime.pi.registerCommand("advisor-models", {
-    description: "Select and persist the Executor, Advisor, and optional fallback models with reasoning levels",
+    description: "Select and persist the Advisor and optional fallback model with reasoning levels",
     handler: async (_args, ctx) => {
       if (!(loadCommandConfig(ctx) && ctx.hasUI)) {
         return;
       }
-      const persisted = getPersistedModelRefs();
+      if (!ctx.model) {
+        ctx.ui.notify("Select a chat model before configuring Advisor", "error");
+        return;
+      }
+      const currentModelRef2 = `${ctx.model.provider}/${ctx.model.id}`;
       const selection = await selectAdvisorModels(ctx, {
-        advisor: persisted.advisor ? advisorRef : "",
+        advisor: advisorRef,
         advisorEffort: advisorEffortRef,
         advisorFallbackModel: advisorFallbackModelRef,
-        executor: runtime.pendingExecutorModelRef ?? (persisted.executor ? executorRef : ""),
-        executorEffort: executorEffortRef,
+        executor: currentModelRef2,
+        executorEffort: undefined,
         selectAdvisor: true,
-        selectExecutor: true
+        selectExecutor: false
       });
       if (!selection) {
         return;
       }
-      setExecutorRef(selection.executor);
       setAdvisorRef(selection.advisor);
       setAdvisorFallbackModelRef(selection.advisorFallbackModel);
-      setExecutorEffortRef(selection.executorEffort);
       setAdvisorEffortRef(selection.advisorEffort);
       const path = saveConfig(ctx, {
         persistAdvisor: true,
-        persistExecutor: true
+        persistExecutor: false
       });
-      runtime.pendingExecutorModelRef = undefined;
       runtime.updateSameModelNotice(ctx);
-      ctx.ui.notify(`Saved Executor + Advisor configurations to ${path}`, "info");
+      ctx.ui.notify(`Saved Advisor configuration to ${path}`, "info");
     }
   });
 };
@@ -9404,10 +9352,9 @@ var saveAdvisorSettings = (ctx, settings, options = {}) => {
   const previous = getAdvisorSettings();
   try {
     applyAdvisorSettings(settings);
-    const persisted = getPersistedModelRefs();
     saveConfig(ctx, {
-      persistAdvisor: Boolean(persisted.advisor),
-      persistExecutor: Boolean(persisted.executor)
+      persistAdvisor: true,
+      persistExecutor: false
     });
     if (!options.skipOutcomeLogging) {
       saveGlobalOutcomeLogging(settings.outcomeLogging ?? false);
@@ -9480,11 +9427,10 @@ var registerSettingsCommands = (runtime) => {
       runtime.resetSameModelNotice();
       const wasAlwaysOn = alwaysOnRef;
       if (wasAlwaysOn) {
-        const persisted = getPersistedModelRefs();
         setAlwaysOnRef(false);
         saveConfig(ctx, {
-          persistAdvisor: Boolean(persisted.advisor),
-          persistExecutor: Boolean(persisted.executor)
+          persistAdvisor: true,
+          persistExecutor: false
         });
       }
       notify(ctx, `Advisor flow disabled. Current model unchanged.${wasAlwaysOn ? " Always on turned off." : ""}`, "info");

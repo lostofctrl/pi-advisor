@@ -64,16 +64,11 @@ export interface CommandRuntime {
     ReturnType<typeof setInterval>
   >;
   nextManualProgressId: () => string;
-  pendingExecutorModelRef: string | undefined;
   readonly pi: ExtensionAPI;
   reportManualBudgetExhausted: (ctx: ExtensionContext) => void;
   readonly requestAdvisor: ManualConsult;
   requestManualRender: (ctx: ExtensionContext) => void;
   readonly scoutStatus: ScoutStatusManager;
-  setExecutorModel: (
-    model: Parameters<ExtensionAPI["setModel"]>[0]
-  ) => ReturnType<ExtensionAPI["setModel"]>;
-  suppressModelSelectionSync: boolean;
   resetSameModelNotice: () => void;
   updateSameModelNotice: (
     ctx: ExtensionContext,

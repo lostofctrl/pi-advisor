@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Use the current chat model and thinking level as the Executor; `/advisor` no longer changes the active model or persists separate Executor settings. Existing `executor` and `executorEffort` values are ignored.
 - Resolved the Advisor configuration file (`advisor.json`) through `PI_ADVISOR_CONFIG_PATH` (absolute path override), then a namespaced `<agentDir>/pi-web/advisor.json` default, falling back to the legacy shared `<agentDir>/advisor.json` only while the namespaced file does not exist yet. Pi CLI's official package is unaffected; this fork's bundle keeps its configuration separate from the CLI's.
 
 ## 0.12.0 - 2026-10-07

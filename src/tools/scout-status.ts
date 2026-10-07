@@ -6,7 +6,7 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import type { Box } from "@earendil-works/pi-tui";
 
-import { executorRef, getAdvisorSettings } from "../config/state.ts";
+import { getAdvisorSettings } from "../config/state.ts";
 import type { ScoutLifecycleEvent } from "../scout.ts";
 import { uiAction, uiAvailable } from "../ui-guard.ts";
 import { formatAdvisorUsage, snapshotAdvisorUsage } from "../usage.ts";
@@ -31,7 +31,7 @@ export const scoutDetailsFromEvent = (
   }
   if (event.type === "cancelled") {
     return {
-      model: previous ? previous.model : executorRef,
+      model: previous?.model ?? "",
       status: "cancelled",
     };
   }

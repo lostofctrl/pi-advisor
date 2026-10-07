@@ -29,6 +29,7 @@ const runModelsCommand = async (agentDir: string) => {
       cwd: agentDir,
       hasUI: true,
       isProjectTrusted: () => false,
+      model: { id: "executor", provider: "provider" },
       modelRegistry: {
         getAvailable: () => [
           { id: "executor", provider: "provider" },
@@ -234,7 +235,7 @@ describe("Searchable model selector", () => {
 });
 
 describe("Advisor model command thinking levels", () => {
-  test("shows configured levels first in the effort choices", async () => {
+  test("shows the configured Advisor level first in the effort choices", async () => {
     await withAgentDir(
       {
         advisor: "provider/advisor",
@@ -245,16 +246,6 @@ describe("Advisor model command thinking levels", () => {
       async (agentDir) => {
         const { effortChoicesSeen } = await runModelsCommand(agentDir);
         expect(effortChoicesSeen).toEqual([
-          [
-            "✓ low",
-            "Default (Model Default)",
-            "off",
-            "minimal",
-            "medium",
-            "high",
-            "xhigh",
-            "max",
-          ],
           [
             "✓ high",
             "Default (Model Default)",

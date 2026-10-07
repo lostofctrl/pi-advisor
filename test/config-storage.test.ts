@@ -267,9 +267,10 @@ describe("Advisor config persistence", () => {
 });
 
 describe("Advisor argument persistence", () => {
-  test("does not persist arguments that name an unusable model", async () => {
+  test("ignores legacy executor arguments and keeps the current model", async () => {
     await withAgentDir(
       {
+        advisor: "good/advisor",
         alwaysOn: true,
         contextMaxChars: 15_000,
         executor: "good/executor",
@@ -296,6 +297,7 @@ describe("Advisor argument persistence", () => {
           cwd: dir,
           hasUI: true,
           isProjectTrusted: () => false,
+          model: { id: "current", provider: "good" },
           modelRegistry: {
             find: (provider: string) =>
               provider === "missing" ? undefined : { id: "x", provider },
@@ -307,7 +309,7 @@ describe("Advisor argument persistence", () => {
           // SAFETY: mock implements the consumed command context: cwd, hasUI, isProjectTrusted, modelRegistry, ui.
         } as any);
 
-        expect(notes.join("\n")).toContain("Executor model not found");
+        expect(notes.join("\n")).not.toContain("Executor model not found");
         // SAFETY: mock implements the consumed command context: cwd, hasUI, isProjectTrusted, modelRegistry, ui.
         await commands.get("advisor-off").handler("", {
           cwd: dir,

@@ -3,20 +3,15 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   effectiveExecutorEffort,
   effectiveExecutorRef,
-  isMarkedSubagent,
 } from "../child-session.ts";
 import { parseArgs } from "../config/args.ts";
 import {
   advisorEffortRef,
   advisorRef,
   contextMaxCharsRef,
-  executorEffortRef,
-  executorRef,
   setAdvisorEffortRef,
   setAdvisorRef,
   setContextMaxCharsRef,
-  setExecutorEffortRef,
-  setExecutorRef,
 } from "../config/state.ts";
 import { saveConfig } from "../config/storage.ts";
 import { sameModelAdvisorDisabled } from "../tools/model-access.ts";
@@ -28,22 +23,14 @@ import {
   ADVISOR_ACTIVATION_EXPLANATION,
   findConfiguredModel,
   hasAdvisorOverride,
-  hasExecutorOverride,
 } from "./model-options.ts";
 import { notify } from "./runtime.ts";
-import type { CommandRuntime, ThinkingLevel } from "./types.ts";
+import type { CommandRuntime } from "./types.ts";
 
-const resolveActivationModels = async (
-  runtime: CommandRuntime,
-  ctx: ExtensionContext
-) => {
-  const executor = findConfiguredModel(ctx, executorRef);
+const resolveActivationModels = async (ctx: ExtensionContext) => {
+  const executor = ctx.model;
   if (!executor) {
-    return {
-      error: executorRef
-        ? `Executor model not found: ${executorRef}`
-        : "Executor model not configured",
-    };
+    return { error: "Select a chat model before enabling Advisor flow" };
   }
   const advisor = findConfiguredModel(ctx, advisorRef);
   if (!advisor) {
@@ -56,9 +43,6 @@ const resolveActivationModels = async (
   const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
   if (!(advisorAuth.ok && advisorAuth.apiKey)) {
     return { error: `No API key for Advisor ${advisorRef}` };
-  }
-  if (!isMarkedSubagent() && !(await runtime.setExecutorModel(executor))) {
-    return { error: `No API key for Executor ${executorRef}` };
   }
   return {};
 };
@@ -76,17 +60,12 @@ export const activateAdvisor = async (
     advisor: advisorRef,
     advisorEffort: advisorEffortRef,
     contextMaxChars: contextMaxCharsRef,
-    executor: executorRef,
-    executorEffort: executorEffortRef,
   };
   const restoreRefs = () => {
     setAdvisorRef(previous.advisor);
     setAdvisorEffortRef(previous.advisorEffort);
     setContextMaxCharsRef(previous.contextMaxChars);
-    setExecutorRef(previous.executor);
-    setExecutorEffortRef(previous.executorEffort);
   };
-  const executorOverride = hasExecutorOverride(args);
   const advisorOverride = hasAdvisorOverride(args);
   const argumentError = parseArgs(args);
   if (argumentError) {
@@ -96,35 +75,24 @@ export const activateAdvisor = async (
   }
 
   const prepared = await prepareActivationModels(
-    runtime,
     ctx,
     announce,
-    executorOverride,
     advisorOverride
   );
   if (!prepared) {
     restoreRefs();
     return;
   }
-  const { error } = await resolveActivationModels(runtime, ctx);
+  const { error } = await resolveActivationModels(ctx);
   if (error) {
     restoreRefs();
     notify(ctx, error, "error");
     return;
   }
-  // parseArgs, model picking, and an inactive `/model` selection only mutate
-  // in-memory refs. Persist them once both models are known and authenticated,
-  // so an unusable model reference is never written to the configuration.
-  if (args.trim() || prepared.pickedModels || prepared.pendingExecutor) {
-    saveConfig(ctx, { persistAdvisor: true, persistExecutor: true });
-  }
-  // A successful activation has committed the effective Executor. Do not let
-  // an older inactive selection override an explicit activation argument on a
-  // later attempt.
-  runtime.pendingExecutorModelRef = undefined;
-  if (executorEffortRef && !isMarkedSubagent()) {
-    // SAFETY: executorEffortRef is operator-configured and trusted to name a ThinkingLevel.
-    runtime.pi.setThinkingLevel(executorEffortRef as ThinkingLevel);
+  // Persist only the Advisor configuration; the Executor is always the active
+  // chat model and must not be pinned to advisor.json.
+  if (args.trim() || prepared.pickedModels) {
+    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
   }
   if (!runtime.flowEnabled()) {
     runtime.pi.setActiveTools([
@@ -133,9 +101,7 @@ export const activateAdvisor = async (
       "record_advisor_outcome",
     ]);
   }
-  const activeModel = isMarkedSubagent()
-    ? ctx.model
-    : findConfiguredModel(ctx, executorRef);
+  const activeModel = ctx.model;
   runtime.updateSameModelNotice(ctx, activeModel);
   if (announce) {
     const activeExecutorRef = effectiveExecutorRef(ctx);

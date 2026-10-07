@@ -54,8 +54,6 @@ class CommandRuntime implements CommandRuntimeContract {
   readonly requestManualRender = requestManualRender;
   readonly scoutStatus: ScoutStatusManager;
   manualProgressSequence = 0;
-  pendingExecutorModelRef: string | undefined;
-  suppressModelSelectionSync = false;
   private lastSameModelDisabled: boolean | undefined;
 
   constructor(pi: ExtensionAPI, dependencies: CommandDependencies = {}) {
@@ -110,7 +108,7 @@ class CommandRuntime implements CommandRuntimeContract {
     } else if (!disabled && this.lastSameModelDisabled === true) {
       notify(
         ctx,
-        "Advisor re-enabled: executor and advisor models differ.",
+        "Advisor re-enabled: current chat and Advisor models differ.",
         "info"
       );
     }
@@ -120,17 +118,6 @@ class CommandRuntime implements CommandRuntimeContract {
   nextManualProgressId() {
     this.manualProgressSequence += 1;
     return `manual-${this.manualProgressSequence}`;
-  }
-
-  async setExecutorModel(
-    model: Parameters<ExtensionAPI["setModel"]>[0]
-  ): Promise<boolean> {
-    this.suppressModelSelectionSync = true;
-    try {
-      return await this.pi.setModel(model);
-    } finally {
-      this.suppressModelSelectionSync = false;
-    }
   }
 
   updateAdvisorUsageStatus(ctx: ExtensionContext) {

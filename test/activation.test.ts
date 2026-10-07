@@ -4,6 +4,10 @@ import { join } from "node:path";
 
 import { initTheme } from "@earendil-works/pi-coding-agent";
 
+import {
+  effectiveExecutorEffort,
+  effectiveExecutorRef,
+} from "../src/child-session.ts";
 import { registerCommands } from "../src/commands.ts";
 import {
   contextMaxCharsRef,
@@ -13,7 +17,7 @@ import {
 } from "../src/config.ts";
 import { registerAdvisorTool } from "../src/tools.ts";
 import { savedConfig, withAgentDir } from "./helpers/config-fixture.ts";
-import { asExtensionContext } from "./helpers/extension-context.ts";
+import { asExtensionContext as asBaseExtensionContext } from "./helpers/extension-context.ts";
 import {
   activationContext,
   activationHarness,
@@ -22,6 +26,12 @@ import {
 import { mockPi } from "./helpers/mock-pi.ts";
 
 initTheme();
+
+const asExtensionContext = <T extends object>(value: T) =>
+  asBaseExtensionContext({
+    model: { id: "executor", provider: "provider" },
+    ...value,
+  });
 
 interface RegistryModel {
   id: string;
@@ -65,7 +75,7 @@ const typingSelectorUi = (
         );
         options.onOpen?.();
         selector.render(100);
-        if (customCall === 1 && options.search) {
+        if (customCall === 0 && options.search) {
           for (const character of options.search) {
             selector.handleInput(character);
           }
@@ -80,6 +90,21 @@ const typingSelectorUi = (
 };
 
 describe("Advisor activation flow", () => {
+  test("derives Executor identity and effort from the active chat context", () => {
+    const first = asExtensionContext({
+      model: { id: "first", provider: "provider" },
+      thinkingLevel: "low",
+    });
+    const second = asExtensionContext({
+      model: { id: "second", provider: "provider" },
+      thinkingLevel: "high",
+    });
+    expect(effectiveExecutorRef(first)).toBe("provider/first");
+    expect(effectiveExecutorEffort(first)).toBe("low");
+    expect(effectiveExecutorRef(second)).toBe("provider/second");
+    expect(effectiveExecutorEffort(second)).toBe("high");
+  });
+
   test("uses models selected in advisor-models when activating in the same session", async () => {
     await withAgentDir({}, async (agentDir) => {
       const commands = new Map<string, any>();
@@ -97,6 +122,7 @@ describe("Advisor activation flow", () => {
         cwd: agentDir,
         hasUI: true,
         isProjectTrusted: () => false,
+        model: { id: "executor", provider: "provider" },
         modelRegistry: modelsRegistry(models),
         ui: typingSelectorUi(theme, { search: "advisor" }),
       });
@@ -120,14 +146,11 @@ describe("Advisor activation flow", () => {
       await commands.get("advisor-models").handler("", ctx);
       expect(savedConfig(agentDir)).toMatchObject({
         advisor: "provider/advisor",
-        executor: "provider/executor",
       });
+      expect(savedConfig(agentDir)).not.toHaveProperty("executor");
 
       await commands.get("advisor").handler("", ctx);
-      expect(selectedModel).toMatchObject({
-        id: "executor",
-        provider: "provider",
-      });
+      expect(selectedModel).toBeUndefined();
       expect(activeTools).toContain("ask_advisor");
     });
   });
@@ -146,6 +169,7 @@ describe("Advisor activation flow", () => {
         cwd: agentDir,
         hasUI: true,
         isProjectTrusted: () => false,
+        model: { id: "chosen-executor", provider: "provider" },
         modelRegistry: modelsRegistry(models),
         ui: {
           ...typingSelectorUi(plainTheme, {
@@ -164,14 +188,13 @@ describe("Advisor activation flow", () => {
       await commands.get("advisor").handler("", ctx);
 
       expect(selectedModels).toEqual([
-        "provider/chosen-executor",
         "provider/chosen-advisor",
         "Disabled (no fallback)",
       ]);
       expect(savedConfig(agentDir)).toMatchObject({
         advisor: "provider/chosen-advisor",
-        executor: "provider/chosen-executor",
       });
+      expect(savedConfig(agentDir)).not.toHaveProperty("executor");
       expect(pi.getActiveTools()).toContain("ask_advisor");
       const explanation = notices.find((message) =>
         message.startsWith("The Advisor is")
@@ -338,12 +361,10 @@ describe("Advisor activation flow", () => {
 
         expect(selectedModels).toEqual([
           "provider/luna",
-          "provider/luna",
           "Disabled (no fallback)",
         ]);
         expect(savedConfig(agentDir)).toMatchObject({
           advisor: "provider/luna",
-          executor: "provider/luna",
         });
       }
     );
@@ -392,9 +413,7 @@ describe("Advisor activation flow", () => {
           );
           expect(automatic).toEqual([]);
           expect(pi.getActiveTools()).toContain("ask_advisor");
-          expect(selectedModels).toEqual([
-            { id: "executor", provider: "provider" },
-          ]);
+          expect(selectedModels).toEqual([]);
           expect(thinkingLevels).toEqual([]);
 
           const manual: string[] = [];

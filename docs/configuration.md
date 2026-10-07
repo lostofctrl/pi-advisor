@@ -16,16 +16,14 @@ Project-local `advisor.json` files (see below) are unaffected by the override. `
 
 Repository-controlled project `advisor.json` files are not applied. Models, prompts, gates, budgets, disclosure, redaction, integrations, and consent remain under the user's global configuration.
 
-`/advisor` also accepts `executor=`, `advisor=`, and `contextMaxChars=` overrides for the current activation. For example, `/advisor contextMaxChars=30000` sets the reconstructed-history limit; use `0` for no history. The `ALL` option in settings represents the complete current branch and remains subject to the Advisor model's context limit. On first use, or when either saved model ref is missing from the configuration or Pi's available model list, `/advisor` opens the available-model picker instead of silently choosing an unconfigured model. The selected Executor and Advisor refs are persisted only after both models pass activation checks.
+`/advisor` uses the current chat model as its Executor and accepts `advisor=` and `contextMaxChars=` overrides. For example, `/advisor contextMaxChars=30000` sets the reconstructed-history limit; use `0` for no history. The `ALL` option in settings represents the complete current branch and remains subject to the Advisor model's context limit. On first use, or when the configured Advisor model is unavailable, `/advisor` opens the Advisor model picker. The chat model and its thinking level always remain under the session's normal model controls and are never saved as Advisor settings. Legacy `executor` and `executorEffort` keys in `advisor.json` are ignored and left in place for compatibility.
 
-All fields are optional. The model refs below are explicit examples of models available through your configured providers; omit them to choose models interactively with `/advisor`. Disclosure and redaction fields are explained in [Privacy and data handling](privacy.md).
+All fields are optional. The Advisor model below is an explicit example of a model available through your configured providers. Disclosure and redaction fields are explained in [Privacy and data handling](privacy.md).
 
 ```json
 {
-  "executor": "provider/executor-model",
   "advisor": "provider/advisor-model",
   "advisorFallbackModel": "provider/backup-advisor-model",
-  "executorEffort": "medium",
   "advisorEffort": "xhigh",
   "contextMaxChars": 25000,
   "advisorModelWhitelist": [
@@ -76,7 +74,7 @@ All fields are optional. The model refs below are explicit examples of models av
 
 ## Same-model consultations
 
-`advisorDisableSameModel` defaults to `true`. When the active Executor model is the same provider/model as the configured Advisor, `ask_advisor` returns a skipped result without calling the provider, screening with Jev, consuming a consultation, or using a tracked-file handoff. Manual calls and automatic gates are skipped too; they never create a tool or session block. The active model (including models selected by `/model`) is compared, not just the saved Executor setting. `/advisor`, `/advisor-models`, and model selection re-check the match and show a notice on transitions. Turn this setting off in `/advisor-settings` if you want a same-model consultation with a different reasoning level.
+`advisorDisableSameModel` defaults to `true`. When the current chat model is the same provider/model as the configured Advisor, `ask_advisor` returns a skipped result without calling the provider, screening with Jev, consuming a consultation, or using a tracked-file handoff. Manual calls and automatic gates are skipped too; they never create a tool or session block. The active chat model (including models selected by `/model`) is compared. `/advisor`, `/advisor-models`, and model selection re-check the match and show a notice on transitions. Turn this setting off in `/advisor-settings` if you want a same-model consultation with a different reasoning level.
 
 ## Follow-up consultations
 
@@ -86,15 +84,15 @@ Payloads are session-local and never persisted. They expire after five minutes, 
 
 ## Advisor model whitelist
 
-`advisorModelWhitelist` is an optional global array of exact `provider/model` references. When it contains one or more entries, the Advisor tool and every automatic Advisor path are available only while the current Executor model matches one of those entries. A missing current model is denied when the list is non-empty. An empty list (the default) allows every model for backward compatibility. The same restriction applies even when `ask_advisor` is present in the active tool list.
+`advisorModelWhitelist` is an optional global array of exact `provider/model` references. When it contains one or more entries, the Advisor tool and every automatic Advisor path are available only while the current chat model matches one of those entries. A missing current model is denied when the list is non-empty. An empty list (the default) allows every model for backward compatibility. The same restriction applies even when `ask_advisor` is present in the active tool list.
 
 The `/advisor-settings` row opens a searchable multi-select menu containing the models configured in Pi. Type to fuzzy-filter the list, use Space to toggle models, and press Enter to apply. The setting is checked before budgets, repeated-call tracking, Jev screening, or any Advisor provider request, so a denied model neither spends Advisor budget nor triggers a gate. Matching is exact and case-sensitive.
 
 ## Simple mode and persistent activation
 
 - `simpleMode` defaults to `false`. When enabled, `ask_advisor` and `/advisor-manual` remain available for voluntary second opinions, while plan/failure/completion rules, loop gates, blocking, call budgets, and session summaries are disabled. Context limits, result caps, redaction, and tool disclosure policies still apply.
-- `alwaysOn` defaults to `false`. When enabled, Pi restores the configured Executor and activates `ask_advisor` for new, resumed, forked, and reloaded sessions. If model refs are missing or unavailable, startup reports the problem without activating; run `/advisor` to choose available models interactively. A native subagent launcher that sets `PI_SUBAGENT_CHILD=1` keeps its host-selected model and thinking level; Advisor tools still activate, but the child is not switched to the parent Executor.
-- An explicit `/model` selection made before `/advisor` is held for that session and adopted as the Executor on the next successful activation. While the Advisor flow is active, an explicit `/model` selection is persisted as the Executor immediately. A model restored with a session or selected by cycling does not change the saved Executor.
+- `alwaysOn` defaults to `false`. When enabled, Pi activates `ask_advisor` for new, resumed, forked, and reloaded sessions using each session's current chat model and thinking level. If there is no current model or the Advisor model is unavailable, startup reports the problem without activating; run `/advisor` after selecting a chat model. Subagents likewise keep their own current model and thinking level.
+- Any `/model` selection, restored session model, or model selected by cycling becomes the Executor for that session immediately; it does not change `advisor.json`.
 - `/advisor-off` turns `alwaysOn` off so the flow stays disabled in later sessions.
 - In Simple mode, settings keeps the Context window/history control alongside Simple mode and Always on. Advanced values remain saved and take effect when Simple mode is disabled.
 - Settings changes are applied and persisted as they happen; Escape closes the screen without a separate Save action.
@@ -103,7 +101,7 @@ The `/advisor-settings` row opens a searchable multi-select menu containing the 
 
 `advisorScoutEnabled` defaults to `false` and can only be loaded from the global `advisor.json`. The `Experimental Advisor Scout` row appears in advanced `/advisor-settings`. Simple mode hides the row without changing its saved value.
 
-When enabled, Scout runs before Executor-requested `ask_advisor` calls, `/advisor-manual`, and automatic gates. It resolves the configured `executor` model and `executorEffort`; it never substitutes the Advisor model or another model. The extra call adds latency and provider cost.
+When enabled, Scout runs before `ask_advisor` calls, `/advisor-manual`, and automatic gates. It uses the current chat model and thinking level, never the Advisor model. The extra call adds latency and provider cost.
 
 Scout receives at most 64 KiB of serialized manifest data in 64 protocol-safe groups, with a 24 KiB limit per group and bounded labels. It may select at most 32 groups and return up to 4 KiB of synthesis. The synthesis is labelled as untrusted inference and never replaces selected verbatim evidence. Required current-request context is always retained. The reconstructed Advisor conversation has a separate `contextMaxChars` budget, so manifest metadata does not consume that budget. If required context cannot fit either hard limit, Scout is skipped.
 

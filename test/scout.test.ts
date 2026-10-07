@@ -2,7 +2,6 @@
 /* biome-ignore-all lint/suspicious/useAwait: async dependency stubs mirror the production contract. */
 import { describe, expect, test } from "bun:test";
 
-import { setExecutorEffortRef, setExecutorRef } from "../src/config.ts";
 import {
   advisorScoutTimeoutMsRef,
   setAdvisorScoutTimeoutMsRef,
@@ -157,16 +156,17 @@ describe("Advisor Scout", () => {
     }
   });
 
-  test("uses the configured Executor model and effort with conversation-only input", async () => {
+  test("uses the current chat model and effort with conversation-only input", async () => {
     const previousChildMarker = process.env.PI_SUBAGENT_CHILD;
     delete process.env.PI_SUBAGENT_CHILD;
     try {
-      setExecutorRef("provider/executor");
-      setExecutorEffortRef("high");
       let options: any;
       const events: string[] = [];
       const outcome = await runAdvisorScout(
-        asExtensionContext({}),
+        asExtensionContext({
+          model: { id: "executor", provider: "provider" },
+          thinkingLevel: "high",
+        }),
         manifest(),
         undefined,
         (event) => events.push(event.type),
@@ -208,8 +208,6 @@ describe("Advisor Scout", () => {
   test("uses the host-pinned model and effort for marked subagent Scout", async () => {
     const previousChildMarker = process.env.PI_SUBAGENT_CHILD;
     process.env.PI_SUBAGENT_CHILD = "1";
-    setExecutorRef("provider/parent-executor");
-    setExecutorEffortRef("low");
     let options: any;
     let resolvedModel = "";
     try {
@@ -252,13 +250,14 @@ describe("Advisor Scout", () => {
   });
 
   test("classifies missing model and auth failures without substitution", async () => {
-    setExecutorRef("provider/missing");
     for (const [message, category] of [
       ["Scout model not found: provider/missing", "missing-model"],
       ["No API key for provider/missing", "auth-error"],
     ] as const) {
       const outcome = await runAdvisorScout(
-        asExtensionContext({}),
+        asExtensionContext({
+          model: { id: "missing", provider: "provider" },
+        }),
         manifest(),
         undefined,
         undefined,

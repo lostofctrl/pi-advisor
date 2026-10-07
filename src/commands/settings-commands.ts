@@ -1,7 +1,6 @@
 import {
   alwaysOnRef,
   getAdvisorSettings,
-  getPersistedModelRefs,
   setAlwaysOnRef,
 } from "../config/state.ts";
 import { saveConfig } from "../config/storage.ts";
@@ -113,11 +112,10 @@ export const registerSettingsCommands = (runtime: CommandRuntime) => {
       // Leaving alwaysOn set would silently reactivate the flow next session.
       const wasAlwaysOn = alwaysOnRef;
       if (wasAlwaysOn) {
-        const persisted = getPersistedModelRefs();
         setAlwaysOnRef(false);
         saveConfig(ctx, {
-          persistAdvisor: Boolean(persisted.advisor),
-          persistExecutor: Boolean(persisted.executor),
+          persistAdvisor: true,
+          persistExecutor: false,
         });
       }
       notify(

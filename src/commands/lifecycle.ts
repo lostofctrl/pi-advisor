@@ -1,13 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { isMarkedSubagent } from "../child-session.ts";
-import {
-  alwaysOnRef,
-  executorRef,
-  getPersistedModelRefs,
-  setExecutorRef,
-} from "../config/state.ts";
-import { loadConfig, saveConfig } from "../config/storage.ts";
+import { alwaysOnRef, setExecutorRef } from "../config/state.ts";
+import { loadConfig } from "../config/storage.ts";
 import { notify } from "./runtime.ts";
 import type { CommandRuntime } from "./types.ts";
 
@@ -22,7 +16,6 @@ export const registerCommandLifecycle = (
   activateAdvisor: ActivateAdvisor
 ) => {
   runtime.pi.on("session_start", async (_event, ctx) => {
-    runtime.pendingExecutorModelRef = undefined;
     runtime.resetSameModelNotice();
     // A malformed advisor.json or a provider auth failure must not reject a
     // lifecycle handler and break session startup.
@@ -40,36 +33,8 @@ export const registerCommandLifecycle = (
   });
 
   runtime.pi.on("model_select", (event, ctx) => {
-    if (!runtime.suppressModelSelectionSync) {
-      runtime.updateSameModelNotice(ctx, event.model);
-    }
-    // "restore" replays a stored session model and "cycle" changes the active
-    // model without an explicit `/model` choice. Neither should redefine the
-    // configured Executor.
-    if (
-      event.source !== "set" ||
-      runtime.suppressModelSelectionSync ||
-      isMarkedSubagent()
-    ) {
-      return;
-    }
-    const selected = `${event.model.provider}/${event.model.id}`;
-    if (!runtime.flowEnabled()) {
-      // Defer persistence until `/advisor` succeeds. This keeps ordinary model
-      // selection global defaults untouched when the flow is not enabled.
-      runtime.pendingExecutorModelRef = selected;
-      return;
-    }
-    runtime.pendingExecutorModelRef = undefined;
-    if (selected === executorRef) {
-      return;
-    }
-    const persisted = getPersistedModelRefs();
-    setExecutorRef(selected);
-    saveConfig(ctx, {
-      persistAdvisor: Boolean(persisted.advisor),
-      persistExecutor: true,
-    });
+    setExecutorRef(`${event.model.provider}/${event.model.id}`);
+    runtime.updateSameModelNotice(ctx, event.model);
   });
 
   runtime.pi.on("session_shutdown", (_event, ctx) => {

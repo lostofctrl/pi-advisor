@@ -39,6 +39,7 @@ const contextFor = (cwd: string, faux: any, entries: object[]) =>
   asExtensionContext({
     cwd,
     isProjectTrusted: () => false,
+    model: { id: "chat", provider: "pi-advisor-image-test" },
     modelRegistry: {
       find: () => faux.models[0],
       getApiKeyAndHeaders: () => Promise.resolve({ apiKey: "key", ok: true }),

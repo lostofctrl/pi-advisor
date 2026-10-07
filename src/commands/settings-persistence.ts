@@ -2,7 +2,6 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import {
   getAdvisorSettings,
-  getPersistedModelRefs,
   setAdvisorAgentsMdContextRef,
   setAdvisorAutoLoopGateRef,
   setAdvisorBlockOnBlockedRef,
@@ -153,10 +152,9 @@ export const saveAdvisorSettings = (
   const previous = getAdvisorSettings();
   try {
     applyAdvisorSettings(settings);
-    const persisted = getPersistedModelRefs();
     saveConfig(ctx, {
-      persistAdvisor: Boolean(persisted.advisor),
-      persistExecutor: Boolean(persisted.executor),
+      persistAdvisor: true,
+      persistExecutor: false,
     });
     if (!options.skipOutcomeLogging) {
       saveGlobalOutcomeLogging(settings.outcomeLogging ?? false);

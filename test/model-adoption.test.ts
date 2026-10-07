@@ -5,7 +5,7 @@ import { savedConfig, withAgentDir } from "./helpers/config-fixture.ts";
 import { activationContext, activationHarness } from "./helpers/harness.ts";
 
 describe("Executor model adoption", () => {
-  test("only an explicit model selection redefines the persisted Executor", async () => {
+  test("follows every model selection without writing an Executor setting", async () => {
     await withAgentDir(
       { executor: "configured/executor" },
       async (agentDir) => {
@@ -14,53 +14,45 @@ describe("Executor model adoption", () => {
         const ctx = activationContext(agentDir);
         await events.get("session_start")?.({ reason: "startup" }, ctx);
 
-        for (const source of ["restore", "cycle"] as const) {
+        for (const source of ["restore", "cycle", "set"] as const) {
           events.get("model_select")?.(
             { model: { id: "other", provider: "vendor" }, source },
             ctx
           );
           expect(savedConfig(agentDir).executor).toBe("configured/executor");
         }
-
-        events.get("model_select")?.(
-          { model: { id: "chosen", provider: "vendor" }, source: "set" },
-          ctx
-        );
-        expect(savedConfig(agentDir).executor).toBe("vendor/chosen");
       }
     );
   });
 
-  test("adopts an explicit model selection made before activation", async () => {
+  test("uses the current chat model on activation and keeps legacy settings", async () => {
     await withAgentDir(
       { advisor: "provider/advisor", executor: "configured/executor" },
       async (agentDir) => {
         const { commands, events, pi, setActiveTools } = activationHarness();
         registerCommands(pi);
         setActiveTools([]);
-        const ctx = activationContext(agentDir);
+        const notices: string[] = [];
+        const ctx = activationContext(agentDir, notices);
         await events.get("session_start")?.({ reason: "startup" }, ctx);
 
         events.get("model_select")?.(
           { model: { id: "luna", provider: "provider" }, source: "set" },
           ctx
         );
-        // Keep normal `/model` changes out of global config until activation
-        // succeeds.
-        expect(savedConfig(agentDir).executor).toBe("configured/executor");
-
         await commands.get("advisor").handler("", ctx);
 
+        expect(notices.join("\n")).toContain("Executor: provider/executor");
         expect(savedConfig(agentDir)).toMatchObject({
           advisor: "provider/advisor",
-          executor: "provider/luna",
+          executor: "configured/executor",
         });
         expect(pi.getActiveTools()).toContain("ask_advisor");
       }
     );
   });
 
-  test("an explicit /advisor Executor override wins over an inactive selection", async () => {
+  test("ignores a legacy Executor override argument", async () => {
     await withAgentDir(
       { advisor: "provider/advisor", executor: "configured/executor" },
       async (agentDir) => {
@@ -70,53 +62,26 @@ describe("Executor model adoption", () => {
         const ctx = activationContext(agentDir);
         await events.get("session_start")?.({ reason: "startup" }, ctx);
 
-        events.get("model_select")?.(
-          { model: { id: "luna", provider: "provider" }, source: "set" },
-          ctx
-        );
         await commands
           .get("advisor")
           .handler("executor=provider/explicit", ctx);
 
-        expect(savedConfig(agentDir).executor).toBe("provider/explicit");
-      }
-    );
-  });
-
-  test("does not adopt restored or cycled models on activation", async () => {
-    await withAgentDir(
-      { advisor: "provider/advisor", executor: "configured/executor" },
-      async (agentDir) => {
-        const { commands, events, pi, setActiveTools } = activationHarness();
-        registerCommands(pi);
-        setActiveTools([]);
-        const ctx = activationContext(agentDir);
-        await events.get("session_start")?.({ reason: "startup" }, ctx);
-
-        for (const source of ["restore", "cycle"] as const) {
-          events.get("model_select")?.(
-            { model: { id: "other", provider: "provider" }, source },
-            ctx
-          );
-        }
-        await commands.get("advisor").handler("", ctx);
-
         expect(savedConfig(agentDir).executor).toBe("configured/executor");
-        expect(pi.getActiveTools()).toContain("ask_advisor");
       }
     );
   });
 
-  test("keeps an inactive model selection out of config until activation", async () => {
-    await withAgentDir({ executor: "configured/executor" }, (agentDir) => {
-      const { events, pi, setActiveTools } = activationHarness();
+  test("keeps flow activation working when no Executor is configured", async () => {
+    await withAgentDir({ advisor: "provider/advisor" }, async (agentDir) => {
+      const { commands, pi, setActiveTools } = activationHarness();
       registerCommands(pi);
       setActiveTools([]);
-      events.get("model_select")?.(
-        { model: { id: "chosen", provider: "vendor" }, source: "set" },
-        activationContext(agentDir)
-      );
-      expect(savedConfig(agentDir).executor).toBe("configured/executor");
+      const ctx = activationContext(agentDir);
+
+      await commands.get("advisor").handler("", ctx);
+
+      expect(pi.getActiveTools()).toContain("ask_advisor");
+      expect(savedConfig(agentDir)).not.toHaveProperty("executor");
     });
   });
 });

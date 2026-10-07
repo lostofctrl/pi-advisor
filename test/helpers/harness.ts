@@ -159,6 +159,7 @@ export const activationContext = (
     cwd: agentDir,
     hasUI: true,
     isProjectTrusted: () => false,
+    model: { id: "executor", provider: "provider" },
     modelRegistry: registry,
     ui: { notify: (message: string) => notes.push(message) },
   });

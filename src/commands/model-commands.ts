@@ -2,14 +2,9 @@ import {
   advisorEffortRef,
   advisorFallbackModelRef,
   advisorRef,
-  executorEffortRef,
-  executorRef,
-  getPersistedModelRefs,
   setAdvisorEffortRef,
   setAdvisorFallbackModelRef,
   setAdvisorRef,
-  setExecutorEffortRef,
-  setExecutorRef,
 } from "../config/state.ts";
 import { saveConfig } from "../config/storage.ts";
 import { loadCommandConfig } from "./activation-preparation.ts";
@@ -20,52 +15,48 @@ import type { CommandRuntime } from "./types.ts";
 export const registerModelCommands = (runtime: CommandRuntime) => {
   runtime.pi.registerCommand("advisor", {
     description:
-      "Enable the Executor/Advisor flow and switch to the configured or explicitly selected Executor model; accepts contextMaxChars=N",
+      "Enable Advisor flow using the current chat model as Executor; accepts contextMaxChars=N",
     handler: (args, ctx) => activateAdvisor(runtime, args, ctx),
   });
 
   runtime.pi.registerCommand("advisor-models", {
     description:
-      "Select and persist the Executor, Advisor, and optional fallback models with reasoning levels",
+      "Select and persist the Advisor and optional fallback model with reasoning levels",
     handler: async (_args, ctx) => {
       if (!(loadCommandConfig(ctx) && ctx.hasUI)) {
         return;
       }
-      // When `/model` was used before activation, show that session choice as
-      // the Executor's current option instead of making the persisted Executor
-      // look like the active selection.
-      const persisted = getPersistedModelRefs();
+      if (!ctx.model) {
+        ctx.ui.notify(
+          "Select a chat model before configuring Advisor",
+          "error"
+        );
+        return;
+      }
+      const currentModelRef = `${ctx.model.provider}/${ctx.model.id}`;
       const selection = await selectAdvisorModels(ctx, {
-        advisor: persisted.advisor ? advisorRef : "",
+        advisor: advisorRef,
         advisorEffort: advisorEffortRef,
         advisorFallbackModel: advisorFallbackModelRef,
-        executor:
-          runtime.pendingExecutorModelRef ??
-          (persisted.executor ? executorRef : ""),
-        executorEffort: executorEffortRef,
+        executor: currentModelRef,
+        executorEffort: undefined,
         selectAdvisor: true,
-        selectExecutor: true,
+        selectExecutor: false,
       });
       if (!selection) {
         return;
       }
 
-      setExecutorRef(selection.executor);
       setAdvisorRef(selection.advisor);
       setAdvisorFallbackModelRef(selection.advisorFallbackModel);
-      setExecutorEffortRef(selection.executorEffort);
       setAdvisorEffortRef(selection.advisorEffort);
 
       const path = saveConfig(ctx, {
         persistAdvisor: true,
-        persistExecutor: true,
+        persistExecutor: false,
       });
-      runtime.pendingExecutorModelRef = undefined;
       runtime.updateSameModelNotice(ctx);
-      ctx.ui.notify(
-        `Saved Executor + Advisor configurations to ${path}`,
-        "info"
-      );
+      ctx.ui.notify(`Saved Advisor configuration to ${path}`, "info");
     },
   });
 };

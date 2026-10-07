@@ -4,14 +4,10 @@ import {
   advisorEffortRef,
   advisorFallbackModelRef,
   advisorRef,
-  executorEffortRef,
-  executorRef,
   getPersistedModelRefs,
   setAdvisorEffortRef,
   setAdvisorFallbackModelRef,
   setAdvisorRef,
-  setExecutorEffortRef,
-  setExecutorRef,
 } from "../config/state.ts";
 import { loadConfig } from "../config/storage.ts";
 import {
@@ -21,7 +17,6 @@ import {
 } from "./model-options.ts";
 import { selectAdvisorModels } from "./model-picker.ts";
 import { notify } from "./runtime.ts";
-import type { CommandRuntime } from "./types.ts";
 
 export interface PreparedActivationModels {
   pendingExecutor?: string;
@@ -44,30 +39,28 @@ export const loadCommandConfig = (ctx: ExtensionContext) => {
 };
 
 export const prepareActivationModels = async (
-  runtime: CommandRuntime,
   ctx: ExtensionContext,
   announce: boolean,
-  executorOverride: boolean,
   advisorOverride: boolean
 ): Promise<PreparedActivationModels | undefined> => {
-  const persisted = getPersistedModelRefs();
+  const currentModelRef = ctx.model
+    ? `${ctx.model.provider}/${ctx.model.id}`
+    : undefined;
+  if (!currentModelRef) {
+    notify(ctx, "Select a chat model before enabling Advisor flow", "error");
+    return;
+  }
+  const storedRefs = getPersistedModelRefs();
+  const persisted = { ...storedRefs, executor: currentModelRef };
   const availableRefs = getAvailableModelRefs(ctx);
   const availableRefSet = availableRefs ? new Set(availableRefs) : undefined;
-  const explicitError =
-    getExplicitModelError(
-      ctx,
-      executorRef,
-      "Executor",
-      executorOverride,
-      availableRefSet
-    ) ??
-    getExplicitModelError(
-      ctx,
-      advisorRef,
-      "Advisor",
-      advisorOverride,
-      availableRefSet
-    );
+  const explicitError = getExplicitModelError(
+    ctx,
+    advisorRef,
+    "Advisor",
+    advisorOverride,
+    availableRefSet
+  );
   if (explicitError) {
     notify(ctx, explicitError, "error");
     return;
@@ -75,16 +68,15 @@ export const prepareActivationModels = async (
 
   const plan = planActivationModels(
     ctx,
-    executorRef,
+    currentModelRef,
     advisorRef,
-    runtime.pendingExecutorModelRef,
+    undefined,
     persisted,
-    executorOverride,
+    false,
     advisorOverride,
     availableRefSet
   );
-  setExecutorRef(plan.pendingExecutor ?? executorRef);
-  if (!(plan.selectExecutor || plan.selectAdvisor)) {
+  if (!plan.selectAdvisor) {
     return { pendingExecutor: plan.pendingExecutor, pickedModels: false };
   }
 
@@ -93,7 +85,7 @@ export const prepareActivationModels = async (
   if (!announce) {
     notify(
       ctx,
-      "Advisor models are not configured or available. Run /advisor to choose them.",
+      "Advisor model is not configured or available. Run /advisor to choose it.",
       "error"
     );
     return;
@@ -102,13 +94,10 @@ export const prepareActivationModels = async (
     advisor: advisorOverride || persisted.advisor ? advisorRef : "",
     advisorEffort: advisorEffortRef,
     advisorFallbackModel: advisorFallbackModelRef,
-    executor:
-      executorOverride || plan.pendingExecutor || persisted.executor
-        ? executorRef
-        : "",
-    executorEffort: executorEffortRef,
+    executor: currentModelRef,
+    executorEffort: undefined,
     selectAdvisor: plan.selectAdvisor,
-    selectExecutor: plan.selectExecutor,
+    selectExecutor: false,
   });
   if (!selection) {
     return;
@@ -116,7 +105,5 @@ export const prepareActivationModels = async (
   setAdvisorRef(selection.advisor);
   setAdvisorFallbackModelRef(selection.advisorFallbackModel);
   setAdvisorEffortRef(selection.advisorEffort);
-  setExecutorRef(selection.executor);
-  setExecutorEffortRef(selection.executorEffort);
   return { pendingExecutor: plan.pendingExecutor, pickedModels: true };
 };

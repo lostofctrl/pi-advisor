@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { advisorScoutEnabledRef, executorRef } from "./config/state.ts";
+import { effectiveExecutorRef } from "./child-session.ts";
+import { advisorScoutEnabledRef } from "./config/state.ts";
 import {
   buildScoutManifest,
   reconstructScoutConversation,
@@ -50,7 +51,7 @@ export const curateAdvisorConversation = async (
         omittedBeforeScout: 0,
         selectedCount: 0,
       },
-      model: executorRef,
+      model: effectiveExecutorRef(ctx),
       ok: false,
     };
     onScout?.({ outcome: scout, type: "fallback" });

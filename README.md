@@ -29,7 +29,7 @@ Keep implementation on a fast model and borrow frontier reasoning only when deci
 - **Visual Advisor reviews** for supported PNG, JPEG, GIF, and WebP images in selected conversation or tool results when the Advisor model accepts images.
 - **Optional persistent activation, Simple mode, session summaries, and Herdr integration.**
 - **Compact searchable `/advisor-settings`** that matches Pi's settings list and saves changes immediately.
-- **Experimental Advisor Scout** that uses the configured Executor model to curate conversation evidence before every Advisor call.
+- **Experimental Advisor Scout** that uses the current chat model to curate conversation evidence before every Advisor call.
 - **Optional Jev/Decisions consultation filter and proactive turn gate**: typed screening can skip low-stakes, self-answerable consultations or proactively pull in the Advisor. Choose TypeSafe, an existing OpenRouter login, or OpenAI Decisions (`gpt-6-luna`; `advisorJevTransport: "openai-decisions"`) in guided setup. The default `auto` order remains TypeSafe → OpenRouter; OpenAI Decisions requires an OpenAI Platform API key, not ChatGPT subscription OAuth. Guided setup stores entered keys securely. Both features are off by default.
 
 ## How it works
@@ -61,7 +61,7 @@ Preview builds use the next patch prerelease version (for example, `0.8.1-dev.1`
 You can also install from GitHub:
 
 ```bash
-pi install git:github.com/philipbrembeck/pi-advisor.git
+pi install git:github.com/lostofctrl/pi-advisor.git
 ```
 
 Reload Pi after installing.
@@ -70,18 +70,18 @@ Reload Pi after installing.
 
 ```text
 /advisor            # Enable the Advisor Flow
-/advisor-models     # Choose the Executor, Advisor, and optional fallback models
+/advisor-models     # Choose the Advisor and optional fallback model
 /advisor-settings   # Configure behavior, modes, etc.
 /advisor-stats      # Show retained outcome adoption and validation stats
 ```
 
-On first use, or whenever a saved model is unavailable, `/advisor` opens the same available-model picker as `/advisor-models`; it never silently chooses an unconfigured model. If the active Executor and Advisor use the same provider/model, calls and automatic gates are skipped with a notice; switching either model resumes consultations. Turn off **Disable same-model Advisor** in `/advisor-settings` (or set `"advisorDisableSameModel": false` globally) if you intentionally want a higher-effort review from that same model. You can also enable the flow and select both models at once:
+On first use, or whenever the configured Advisor is unavailable, `/advisor` opens the available Advisor model picker. The current chat model is always the Executor. If the active chat and Advisor models use the same provider/model, calls and automatic gates are skipped with a notice; switching either model resumes consultations. Turn off **Disable same-model Advisor** in `/advisor-settings` (or set `"advisorDisableSameModel": false` globally) if you intentionally want a higher-effort review from that same model. You can enable the flow and select an Advisor model at once:
 
 ```text
-/advisor executor=openai-codex/gpt-5.6-luna advisor=openai-codex/gpt-5.6-sol
+/advisor advisor=openai-codex/gpt-5.6-sol
 ```
 
-From the Executor, `ask_advisor({})` requests a general review. A targeted `question` or concise `draft` can focus the review on a particular decision. `/advisor-settings` can restrict this tool and every automatic Advisor gate to a whitelist of exact `provider/model` Executor references; an empty whitelist preserves the default of allowing every model.
+From the current chat model, `ask_advisor({})` requests a general review. A targeted `question` or concise `draft` can focus the review on a particular decision. `/advisor-settings` can restrict this tool and every automatic Advisor gate to a whitelist of exact `provider/model` current chat model references; an empty whitelist preserves the default of allowing every model.
 
 In the Settings, enable Simple Mode for a quick start.
 
@@ -138,7 +138,7 @@ Successful calls return an opaque `adviceId`. If global outcome logging is enabl
 | --- | --- |
 | `/advisor` | Enable the flow; choose available models when needed. |
 | `/advisor-manual [focus]` | Ask for an immediate second opinion. |
-| `/advisor-models` | Choose the Executor, Advisor, and optional fallback models. |
+| `/advisor-models` | Choose the Advisor and optional fallback models. |
 | `/advisor-settings` | Configure behavior, models, context, privacy, and limits. |
 | `/advisor-stats` | Show retained outcome adoption and validation stats. |
 | `/advisor-off` | Disable the flow and persistent activation. |
@@ -147,13 +147,13 @@ In the interactive TUI, `/advisor-manual [focus]` opens a centered overlay with 
 
 ### Experimental Advisor Scout
 
-Advisor Scout is off by default. When enabled in `/advisor-settings` or via `"advisorScoutEnabled": true`, the Executor model first selects relevant conversation history before the Advisor sees it. Scout runs in a separate model call, which adds cost and latency up front but can shrink the Advisor call. A bounded result shows the model, selection counts, and usage; on any failure it falls back to sending the original conversation unchanged. This experiment adapts the context-boundary idea from Zhang et al., ["FastContext: Training Efficient Repository Explorer for Coding Agents"](https://arxiv.org/html/2606.14066v1) — it curates conversation history only and is not a reproduction of FastContext. See the [configuration guide](https://github.com/philipbrembeck/pi-advisor/blob/main/docs/configuration.md) for details.
+Advisor Scout is off by default. When enabled in `/advisor-settings` or via `"advisorScoutEnabled": true`, the current chat model first selects relevant conversation history before the Advisor sees it. Scout runs in a separate model call, which adds cost and latency up front but can shrink the Advisor call. A bounded result shows the model, selection counts, and usage; on any failure it falls back to sending the original conversation unchanged. This experiment adapts the context-boundary idea from Zhang et al., ["FastContext: Training Efficient Repository Explorer for Coding Agents"](https://arxiv.org/html/2606.14066v1) — it curates conversation history only and is not a reproduction of FastContext. See the [configuration guide](https://github.com/philipbrembeck/pi-advisor/blob/main/docs/configuration.md) for details.
 
 ## Privacy
 
 Advisor requests can include user messages, tool calls, tool results, targeted questions, trusted project and global `AGENTS.md` rules, and repository information. `advisorAgentsMdContext` is on by default and can be disabled in `/advisor-settings`; rules are sent as origin-labelled, capped, redacted, untrusted review guidance only. Untrusted projects withhold both rule files and tell the Advisor that rules were withheld. Repository context is configurable from no access through changed-file summaries to a capped patch; when it is disabled, the Advisor is told so rather than shown an apparently clean tree. Images from disclosed conversation and full-policy tool results can be sent as pixels only to image-capable Advisor models; Scout sees markers, not pixels. Exact tracked and untracked image files can be attached using `includeTrackedFiles` and `includeUntracked` under their existing separate global consent rules. Images are limited to four and 8 MiB total, with a 4 MiB per-image cap; unsupported, missing, or oversized images are reported as withheld, not reviewed. Explicit tracked and untracked file contents require separate global opt-ins and are sent as untrusted data. Secret redaction is off by default; when enabled, credential-shaped values in targeted questions are redacted before the provider request. Tools without an explicit policy use full context. Settings are global, so a project cannot silently change them.
 
-When Scout is enabled, the Executor model provider also receives bounded Advisor-eligible conversation history. Pi's `buildContextEntries()` projection is used when available. OMP-compatible session managers without that API are supported through the active branch, with the latest reset boundary and compaction's retained range applied before history or images are disclosed; cleared and compacted-out entries are not forwarded. Read [Privacy and data handling](https://github.com/philipbrembeck/pi-advisor/blob/main/docs/privacy.md) before using pi-advisor with sensitive work.
+When Scout is enabled, the current chat model provider also receives bounded Advisor-eligible conversation history. Pi's `buildContextEntries()` projection is used when available. OMP-compatible session managers without that API are supported through the active branch, with the latest reset boundary and compaction's retained range applied before history or images are disclosed; cleared and compacted-out entries are not forwarded. Read [Privacy and data handling](https://github.com/philipbrembeck/pi-advisor/blob/main/docs/privacy.md) before using pi-advisor with sensitive work.
 
 ## Documentation
 

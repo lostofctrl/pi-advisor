@@ -11,12 +11,12 @@
     "pi-extension",
     "pi-package"
   ],
-  "homepage": "https://github.com/philipbrembeck/pi-advisor",
+  "homepage": "https://github.com/lostofctrl/pi-advisor",
   "license": "MIT",
   "author": "Philip Brembeck",
   "repository": {
     "type": "git",
-    "url": "https://github.com/philipbrembeck/pi-advisor.git"
+    "url": "https://github.com/lostofctrl/pi-advisor.git"
   },
   "files": [
     "dist",

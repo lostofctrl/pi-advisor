@@ -44,6 +44,7 @@ const fauxContext = (
   asExtensionContext({
     cwd,
     isProjectTrusted: () => trusted,
+    model: { id: "chat", provider: "pi-advisor-test-chat" },
     modelRegistry: {
       find: () => faux.models[0],
       getApiKeyAndHeaders: () => Promise.resolve({ apiKey: "key", ok: true }),
