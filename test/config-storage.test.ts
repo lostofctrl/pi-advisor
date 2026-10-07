@@ -42,9 +42,11 @@ const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 let agentDir = "";
 
 const configPath = () => join(agentDir, "advisor.json");
-const readSavedConfig = () =>
+const namespacedConfigPath = () => join(agentDir, "pi-web", "advisor.json");
+const readSavedConfigFrom = (path: string) =>
   // SAFETY: advisor.json is flat JSON written by saveConfig in these fixtures.
-  JSON.parse(readFileSync(configPath(), "utf-8")) as Record<string, JsonValue>;
+  JSON.parse(readFileSync(path, "utf-8")) as Record<string, JsonValue>;
+const readSavedConfig = () => readSavedConfigFrom(configPath());
 
 describe("Advisor config persistence", () => {
   beforeEach(() => {
@@ -193,13 +195,22 @@ describe("Advisor config persistence", () => {
     setExecutorRef("openai-codex/new-executor");
     setShowUsageFooterRef(true);
 
+    // Nothing is seeded, so the first save creates the namespaced file.
     saveConfig(context, { persistAdvisor: false, persistExecutor: false });
-    expect(readSavedConfig()).not.toHaveProperty("advisor");
-    expect(readSavedConfig()).not.toHaveProperty("executor");
+    expect(readSavedConfigFrom(namespacedConfigPath())).not.toHaveProperty(
+      "advisor"
+    );
+    expect(readSavedConfigFrom(namespacedConfigPath())).not.toHaveProperty(
+      "executor"
+    );
 
     saveConfig(context, { persistAdvisor: true, persistExecutor: true });
-    expect(readSavedConfig().advisor).toBe("openai-codex/new-advisor");
-    expect(readSavedConfig().executor).toBe("openai-codex/new-executor");
+    expect(readSavedConfigFrom(namespacedConfigPath()).advisor).toBe(
+      "openai-codex/new-advisor"
+    );
+    expect(readSavedConfigFrom(namespacedConfigPath()).executor).toBe(
+      "openai-codex/new-executor"
+    );
   });
 
   test("uses existing models as the baseline for an initial restricted save", () => {

@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
+import { resolveAdvisorConfigPath } from "../config/paths.ts";
 import { readExistingConfig, resetConfigCache } from "../config/storage.ts";
 import { isString } from "../content-utils.ts";
 import type { RecordValue } from "../content-utils.ts";
@@ -75,8 +76,15 @@ export const hasRuntimeSecretStore = () => runtimeSecrets() !== undefined;
 const normalizeKey = (value: string | null | undefined): string | undefined =>
   value?.trim() || undefined;
 
-const readAdvisorJsonConfig = (): RecordValue =>
-  readExistingConfig(join(getAgentDir(), "advisor.json"));
+const readAdvisorJsonConfig = (): RecordValue => {
+  try {
+    return readExistingConfig(resolveAdvisorConfigPath());
+  } catch {
+    // A malformed explicit override must not break key resolution; the config
+    // load path surfaces the error loudly instead.
+    return {};
+  }
+};
 
 const defaultReadFileStore = (): string | undefined => {
   try {
@@ -229,7 +237,7 @@ export const clearKeyTypeSafeKey = async (
  * Unknown keys and all config settings are preserved verbatim. */
 export const removeTypeSafeKeyFromAdvisorJson = (): JevKeyStoreResult => {
   try {
-    const path = join(getAgentDir(), "advisor.json");
+    const path = resolveAdvisorConfigPath();
     const existing = readExistingConfig(path);
     if (!(TYPESAFE_KEY_CONFIG_FIELD in existing)) {
       return { message: "No plaintext key in advisor.json.", ok: true };

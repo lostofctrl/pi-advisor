@@ -1,6 +1,16 @@
 # Configuration
 
-Use `/advisor-models` and `/advisor-settings` to configure pi-advisor. Both commands save to the global `advisor.json` in the Pi agent directory. `/advisor-settings` uses Pi's compact searchable settings list: type to fuzzy-search a control, press Enter or Space to change it, and every valid change is saved immediately.
+Use `/advisor-models` and `/advisor-settings` to configure pi-advisor. Both commands save to the global `advisor.json` in the Pi agent directory.
+
+### Configuration file location
+
+This fork resolves `advisor.json` in this order:
+
+1. `PI_ADVISOR_CONFIG_PATH` — an explicit absolute path. A relative or empty value is rejected with an error, never silently ignored.
+2. `<agentDir>/pi-web/advisor.json` — the namespaced default, so this bundle (loaded by Pi Web) does not share configuration with Pi CLI's official package.
+3. `<agentDir>/advisor.json` — first-run fallback: used only while the namespaced file does not exist yet and the legacy shared file does, so existing installations keep their current file until the namespaced one is created.
+
+Project-local `advisor.json` files (see below) are unaffected by the override. `/advisor-settings` uses Pi's compact searchable settings list: type to fuzzy-search a control, press Enter or Space to change it, and every valid change is saved immediately.
 
 Repository-controlled project `advisor.json` files are not applied. Models, prompts, gates, budgets, disclosure, redaction, integrations, and consent remain under the user's global configuration.
 

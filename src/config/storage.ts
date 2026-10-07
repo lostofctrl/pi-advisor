@@ -1,12 +1,19 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { isRecord, isString } from "../content-utils.ts";
 import type { RecordValue } from "../content-utils.ts";
 import { applyConfig, resetDefaults } from "./defaults.ts";
+import { resolveAdvisorConfigPath } from "./paths.ts";
 import {
   CONFIG_SCHEMA,
   configuredModelRef,
@@ -21,7 +28,7 @@ export const configPaths = (ctx: ExtensionContext) => [
   ctx.isProjectTrusted()
     ? join(ctx.cwd, CONFIG_DIR_NAME, "advisor.json")
     : null,
-  join(getAgentDir(), "advisor.json"),
+  resolveAdvisorConfigPath(),
 ];
 
 type SavedConfigKey = PersistedConfigKey;
@@ -50,6 +57,11 @@ export const readExistingConfig = (path: string): RecordValue => {
   } catch {
     return {};
   }
+};
+
+/** Creates the parent directory so writes into a namespaced location succeed. */
+const ensureConfigDirectory = (path: string) => {
+  mkdirSync(dirname(path), { recursive: true });
 };
 
 const readConfigForSave = (path: string): RecordValue => {
@@ -165,7 +177,7 @@ const readConfigCached = (path: string): AdvisorConfig => {
 
 export const loadConfig = (_ctx: ExtensionContext) => {
   resetDefaults();
-  const global = join(getAgentDir(), "advisor.json");
+  const global = resolveAdvisorConfigPath();
   const globalConfig = existsSync(global)
     ? readConfigCached(global)
     : undefined;
@@ -215,7 +227,7 @@ export const saveConfig = (
   _ctx: ExtensionContext,
   options: SaveConfigOptions = {}
 ) => {
-  const path = join(getAgentDir(), "advisor.json");
+  const path = resolveAdvisorConfigPath();
   const persistAdvisor = options.persistAdvisor ?? true;
   const persistExecutor = options.persistExecutor ?? true;
   const current = currentConfigState();
@@ -236,6 +248,7 @@ export const saveConfig = (
     persistAdvisor,
     persistExecutor
   );
+  ensureConfigDirectory(path);
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
   resetConfigCache();
   const nextLoadedState = { ...current };
@@ -260,8 +273,9 @@ export const saveConfig = (
 
 /** Outcome logging is deliberately written only to the global Pi configuration. */
 export const saveGlobalOutcomeLogging = (enabled: boolean) => {
-  const path = join(getAgentDir(), "advisor.json");
+  const path = resolveAdvisorConfigPath();
   const existing = readConfigForSave(path);
+  ensureConfigDirectory(path);
   writeFileSync(
     path,
     `${JSON.stringify({ ...existing, advisorOutcomeLogging: enabled }, null, 2)}\n`
