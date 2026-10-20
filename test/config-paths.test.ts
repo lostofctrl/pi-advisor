@@ -45,11 +45,13 @@ describe("Advisor configuration path resolution", () => {
   afterEach(() => {
     resetConfigCache();
     rmSync(agentDir, { force: true, recursive: true });
+
     if (originalAgentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;
     } else {
       process.env.PI_CODING_AGENT_DIR = originalAgentDir;
     }
+
     if (originalOverride === undefined) {
       setOverride(undefined);
     } else {

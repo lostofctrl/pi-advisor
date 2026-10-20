@@ -26,14 +26,18 @@ export const registerModelCommands = (runtime: CommandRuntime) => {
       if (!(loadCommandConfig(ctx) && ctx.hasUI)) {
         return;
       }
+
       if (!ctx.model) {
         ctx.ui.notify(
           "Select a chat model before configuring Advisor",
           "error"
         );
+
         return;
       }
+
       const currentModelRef = `${ctx.model.provider}/${ctx.model.id}`;
+
       const selection = await selectAdvisorModels(ctx, {
         advisor: advisorRef,
         advisorEffort: advisorEffortRef,
@@ -43,6 +47,7 @@ export const registerModelCommands = (runtime: CommandRuntime) => {
         selectAdvisor: true,
         selectExecutor: false,
       });
+
       if (!selection) {
         return;
       }
@@ -55,6 +60,7 @@ export const registerModelCommands = (runtime: CommandRuntime) => {
         persistAdvisor: true,
         persistExecutor: false,
       });
+
       runtime.updateSameModelNotice(ctx);
       ctx.ui.notify(`Saved Advisor configuration to ${path}`, "info");
     },

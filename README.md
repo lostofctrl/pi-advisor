@@ -19,7 +19,7 @@ Keep implementation on a fast model and borrow frontier reasoning only when deci
 - **On-demand second opinions** through the `ask_advisor` tool or `/advisor-manual`.
 - **Configurable review gates** before plans, after repeated failures, and before declaring completion.
 - **Automatic loop detection** for repeated tool calls, with explicit proceed, revise, or blocked decisions.
-- **Separate model and reasoning controls** for the Executor and Advisor, with same-model consultations skipped by default to avoid redundant calls.
+- **Independent Advisor model and reasoning controls**, while the Executor follows the current chat model and thinking level, with same-model consultations skipped by default to avoid redundant calls.
 - **Optional Advisor fallback model** that retries provider, auth, and availability failures once without consuming a second consultation budget slot.
 - **Cached Advisor follow-ups** through `followUpTo`, reusing a short-lived, redacted payload prefix for focused questions.
 - **Model whitelist** that can restrict Advisor calls to exact `provider/model` Executor references.
@@ -30,7 +30,7 @@ Keep implementation on a fast model and borrow frontier reasoning only when deci
 - **Optional persistent activation, Simple mode, session summaries, and Herdr integration.**
 - **Compact searchable `/advisor-settings`** that matches Pi's settings list and saves changes immediately.
 - **Experimental Advisor Scout** that uses the current chat model to curate conversation evidence before every Advisor call.
-- **Optional Jev/Decisions consultation filter and proactive turn gate**: typed screening can skip low-stakes, self-answerable consultations or proactively pull in the Advisor. Choose TypeSafe, an existing OpenRouter login, or OpenAI Decisions (`gpt-6-luna`; `advisorJevTransport: "openai-decisions"`) in guided setup. The default `auto` order remains TypeSafe → OpenRouter; OpenAI Decisions requires an OpenAI Platform API key, not ChatGPT subscription OAuth. Guided setup stores entered keys securely. Both features are off by default.
+- **Optional Jev classifier screening and proactive turn gate**: typed Pi classifiers can skip low-stakes, self-answerable consultations or proactively pull in the Advisor. `/advisor-settings` offers available Pi-authenticated classifiers plus an explicit **Jev API Key** option. The API-key option is independently masked, live-verified, and stored only in a Jev-classifier-specific secure store; legacy keys are not migrated. Custom classifiers must be registered by a Pi provider extension. Both features remain off by default.
 
 ## How it works
 
@@ -118,13 +118,17 @@ Gather and filter deterministic results before paying for Advisor reasoning. Nes
 
 Codemode receives `{ text, adviceId?, advisor?, followUp?, usage?, jev?, skipReason? }`. `text` preserves Advisor Markdown or the existing skip notice; `usage` is the same normalized snapshot shown in response details. Skipped calls have no new `adviceId`. Provider failures and blocked calls reject. Regular consultations never become loop-gate decisions. Interactive responses and usage accounting are unchanged.
 
-Draft text is explicit disclosure: it does **not** inherit the policies of the tools that produced it. Do not copy excluded tool output, secrets, or unconsented file bodies into `draft` or `question`. The selected Jev/Decisions provider may also receive the draft when screening is enabled. See [Privacy and data handling](docs/privacy.md).
+Draft text is explicit disclosure: it does **not** inherit the policies of the tools that produced it. Do not copy excluded tool output, secrets, or unconsented file bodies into `draft` or `question`. The selected Jev classifier may also receive the draft when screening is enabled. See [Privacy and data handling](docs/privacy.md).
 
 ## Usage and accounting
 
+The Executor receives the current Advisor call allowance in hidden conversation messages at the start of each run and after turns that change it. Invocation rules stay in a stable system-prompt section, so spending budget does not rewrite the leading prompt, including on providers with `supportsMidConvoSystemMessages: false`. The latest budget report already accounts for consumed and reserved calls; unlimited budgets and Simple mode are reported explicitly. Programmatic limits still enforce the shared allowance across consultations and gates.
+
+When using an older pi-advisor version, a model-level `"compat": { "supportsMidConvoSystemMessages": true }` in Pi's `models.json` can avoid this budget-related prefix rewrite if the endpoint has been verified to support mid-conversation developer/system messages. Refresh the model catalog and reselect the model, or restart Pi, after changing it. The current budget feedback does not require this workaround. Other prompt/tool changes, routing, and cache expiry can still cause cache misses.
+
 Advisor responses show provider-reported input, output, cache, and cost details when available. Successful `ask_advisor` calls also carry normalized usage into Pi's built-in `/cost` totals. Manual consultations and automatic gates keep their own session-local accounting instead, so nothing is double-counted. Missing or partial provider usage is shown as unavailable rather than fabricated as zero. `/advisor-settings` controls both the per-response details and the optional cumulative footer independently. Configure `advisorFallbackModel` or choose **Fallback Advisor model** in the model/settings pickers to retry one failed primary request; the final response is labelled with the model that answered, and both failures are shown together.
 
-Jev/Decisions token usage stays in local session summaries. TypeSafe/OpenRouter costs use the configurable estimate; OpenAI Decisions token counts are recorded with cost shown as unavailable until endpoint-specific billing is confirmed.
+Classifier token usage and catalog-priced input cost appear in the local Jev session summary. Pi's catalog input/cache rates are authoritative; JEV output tokens are always free and native classifier usage is normalized to zero output cost even when a catalog carries an output rate. During `ask_advisor` screening, classifier usage is combined with Advisor usage once in the tool result and included in Pi cost totals (under the generic tools bucket). Manual and turn-gate classifier calls remain local-only for Pi totals because Pi exposes no supported lifecycle usage-attribution API.
 
 A follow-up reuses only the original post-redaction payload in memory. It expires after five minutes, is cleared by a new user turn or three subsequent non-Advisor tool results, and allows at most three chained follow-ups. Use a fresh consultation when it expires or when you need new repository context or attachments.
 
@@ -141,7 +145,7 @@ Successful calls return an opaque `adviceId`. If global outcome logging is enabl
 | `/advisor-models` | Choose the Advisor and optional fallback models. |
 | `/advisor-settings` | Configure behavior, models, context, privacy, and limits. |
 | `/advisor-stats` | Show retained outcome adoption and validation stats. |
-| `/advisor-off` | Disable the flow and persistent activation. |
+| `/advisor-off` | Disable model-facing Advisor tools across sessions and turn off persistent activation. |
 
 In the interactive TUI, `/advisor-manual [focus]` opens a centered overlay with the focus text prefilled, a choice of permitted Git-context level, and live progress in the transcript. Canceling has no side effects.
 

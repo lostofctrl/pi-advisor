@@ -30,6 +30,7 @@ export const mockPi = <TOverrides extends object>(
 ): ExtensionAPI => {
   const { activeTools, ...collectors } = capture;
   const tools = activeTools ?? [];
+
   const api = {
     appendEntry<T>(type: string, data: T) {
       collectors.entries?.push({ data, type });
@@ -58,6 +59,7 @@ export const mockPi = <TOverrides extends object>(
     },
     ...overrides,
   };
+
   // SAFETY: mock implements the ExtensionAPI registration surface tests consume; overrides replace members.
   return api as ExtensionAPI;
 };

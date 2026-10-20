@@ -39,6 +39,7 @@ export const modalHarness = (
   const sent: { message: any; options: any }[] = [];
   const statuses: (string | undefined)[] = [];
   const mockPiApi = mockPi({ commands, entries, entryRenderers, events, sent });
+
   const ctx = asExtensionContext({
     cwd: agentDir,
     hasUI: true,
@@ -48,12 +49,14 @@ export const modalHarness = (
       custom: (factory: any, options: any) =>
         new Promise((resolve) => {
           modalOptions.push(options);
+
           const dialog = factory(
             { requestRender: () => undefined, terminal: { rows: 24 } },
             modalTheme,
             getKeybindings(),
             resolve
           );
+
           dialog.focused = true;
           drive(dialog);
         }),
@@ -65,7 +68,9 @@ export const modalHarness = (
       },
     },
   });
+
   registerCommands(mockPiApi, { consult, sessionState: state });
+
   return {
     commands,
     ctx,
@@ -91,6 +96,7 @@ export const activationHarness = () => {
   const activeTools = ["ask_advisor"];
   const selectedModels: unknown[] = [];
   const thinkingLevels: unknown[] = [];
+
   const pi = mockPi(
     { commands, events, messageRenderers: renderers },
     {
@@ -106,6 +112,7 @@ export const activationHarness = () => {
       },
       setModel: (model: Parameters<ExtensionAPI["setModel"]>[0]) => {
         selectedModels.push(model);
+
         return Promise.resolve(true);
       },
       setThinkingLevel: (
@@ -115,6 +122,7 @@ export const activationHarness = () => {
       },
     }
   );
+
   return {
     commands,
     events,
@@ -152,9 +160,11 @@ export const activationContext = (
         : { id, provider },
     getApiKeyAndHeaders: () => Promise.resolve({ apiKey: "key", ok: true }),
   };
+
   if (models) {
     registry.getAvailable = () => models;
   }
+
   return asExtensionContext({
     cwd: agentDir,
     hasUI: true,

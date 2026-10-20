@@ -54,6 +54,7 @@ class CommandRuntime implements CommandRuntimeContract {
   readonly requestManualRender = requestManualRender;
   readonly scoutStatus: ScoutStatusManager;
   manualProgressSequence = 0;
+  toolAvailabilityRevision = 0;
   private lastSameModelDisabled: boolean | undefined;
 
   constructor(pi: ExtensionAPI, dependencies: CommandDependencies = {}) {
@@ -91,6 +92,10 @@ class CommandRuntime implements CommandRuntimeContract {
     return this.pi.getActiveTools().includes("ask_advisor");
   }
 
+  noteAdvisorToolsStateChange() {
+    this.toolAvailabilityRevision += 1;
+  }
+
   resetSameModelNotice() {
     this.lastSameModelDisabled = undefined;
   }
@@ -102,7 +107,9 @@ class CommandRuntime implements CommandRuntimeContract {
     if (!this.flowEnabled()) {
       return;
     }
+
     const disabled = sameModelAdvisorDisabled(ctx, model);
+
     if (disabled && this.lastSameModelDisabled !== true) {
       notify(ctx, sameModelAdvisorNotice, "info");
     } else if (!disabled && this.lastSameModelDisabled === true) {
@@ -112,11 +119,13 @@ class CommandRuntime implements CommandRuntimeContract {
         "info"
       );
     }
+
     this.lastSameModelDisabled = disabled;
   }
 
   nextManualProgressId() {
     this.manualProgressSequence += 1;
+
     return `manual-${this.manualProgressSequence}`;
   }
 

@@ -16,6 +16,7 @@ import {
   getAdvisorSettings,
   setAdvisorEffortRef,
   setAdvisorRef,
+  setAdvisorToolsEnabledRef,
   setExecutorEffortRef,
   setExecutorRef,
   setShowUsageFooterRef,
@@ -43,9 +44,11 @@ let agentDir = "";
 
 const configPath = () => join(agentDir, "advisor.json");
 const namespacedConfigPath = () => join(agentDir, "pi-web", "advisor.json");
+
 const readSavedConfigFrom = (path: string) =>
   // SAFETY: advisor.json is flat JSON written by saveConfig in these fixtures.
   JSON.parse(readFileSync(path, "utf-8")) as Record<string, JsonValue>;
+
 const readSavedConfig = () => readSavedConfigFrom(configPath());
 
 describe("Advisor config persistence", () => {
@@ -57,11 +60,26 @@ describe("Advisor config persistence", () => {
   afterEach(() => {
     resetConfigCache();
     rmSync(agentDir, { force: true, recursive: true });
+
     if (originalAgentDir === undefined) {
       delete process.env.PI_CODING_AGENT_DIR;
     } else {
       process.env.PI_CODING_AGENT_DIR = originalAgentDir;
     }
+  });
+
+  test("persists the Advisor tools opt-out and defaults it on for old configs", () => {
+    writeFileSync(configPath(), JSON.stringify({ alwaysOn: false }));
+    loadConfig(context);
+    expect(getAdvisorSettings().advisorToolsEnabled).toBe(true);
+
+    setAdvisorToolsEnabledRef(false);
+    saveConfig(context);
+    expect(readSavedConfig().advisorToolsEnabled).toBe(false);
+
+    resetConfigCache();
+    loadConfig(context);
+    expect(getAdvisorSettings().advisorToolsEnabled).toBe(false);
   });
 
   test("preserves external known and unknown edits during unrelated saves", () => {
@@ -121,6 +139,57 @@ describe("Advisor config persistence", () => {
     expect(getAdvisorSettings().simpleMode).toBe(previous.simpleMode);
   });
 
+  test("preserves legacy JEV fields, plaintext keys, and unknown fields during saves", () => {
+    const legacy = {
+      advisorJevBaseUrl: "https://legacy.example.test",
+      advisorJevModel: "jev-legacy-model",
+      advisorJevPricePerMtok: 0.042,
+      advisorJevTransport: "typesafe-compatible",
+      futureJevSetting: { keep: true },
+      typesafe_api_key: "legacy-plaintext-secret",
+      unrelated: "preserve",
+    };
+
+    writeFileSync(configPath(), JSON.stringify(legacy));
+    loadConfig(context);
+
+    setShowUsageFooterRef(true);
+    saveConfig(context);
+
+    expect(readSavedConfig()).toMatchObject(legacy);
+
+    expect(readSavedConfig()).not.toHaveProperty("advisorJevClassifier");
+    expect(readSavedConfig()).not.toHaveProperty("jevClassifierApiKey");
+  });
+
+  test("warns once when a legacy filter is enabled without a classifier", () => {
+    writeFileSync(
+      configPath(),
+      JSON.stringify({ advisorJevFilterEnabled: true })
+    );
+
+    const notifications: { kind: string; message: string }[] = [];
+
+    // SAFETY: mock context exercises only the hasUI-aware loadConfig notify path.
+    const uiContext = {
+      hasUI: true,
+      ui: {
+        notify: (message: string, kind: string) =>
+          notifications.push({ kind, message }),
+      },
+    } as any;
+
+    loadConfig(context);
+    loadConfig(uiContext);
+    loadConfig(uiContext);
+
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]?.kind).toBe("warning");
+    expect(notifications[0]?.message).toContain(
+      "no Jev classifier is selected"
+    );
+  });
+
   test("Jev setup skips a separate outcome-consent write and preserves the stored field", () => {
     writeFileSync(
       configPath(),
@@ -137,16 +206,17 @@ describe("Advisor config persistence", () => {
       context,
       {
         ...previous,
+        jevClassifier: "openai/gpt-6-luna",
         jevFilterEnabled: true,
-        jevTransport: "openai-decisions",
         outcomeLogging: false,
       },
       { skipOutcomeLogging: true }
     );
 
     expect(readSavedConfig()).toMatchObject({
+      advisorJevClassifier: "openai/gpt-6-luna",
       advisorJevFilterEnabled: true,
-      advisorJevTransport: "openai-decisions",
+      advisorJevTransport: "auto",
       advisorOutcomeLogging: true,
       futureSetting: "preserve",
     });
@@ -328,7 +398,7 @@ describe("Advisor argument persistence", () => {
 describe("Config schema consistency", () => {
   test("every AdvisorConfig key has exactly one schema entry", () => {
     // Compile-time coverage (satisfies Record<keyof AdvisorConfig, ...>)
-    // guarantees no missing or extra keys; this pins the exact 47-key set.
+    // guarantees no missing or extra keys; this pins the exact 51-key set.
     const schemaKeys = Object.keys(CONFIG_SCHEMA).toSorted();
     expect(schemaKeys).toEqual([
       "advisor",
@@ -345,11 +415,14 @@ describe("Config schema consistency", () => {
       "advisorGitContext",
       "advisorGitContextMaxChars",
       "advisorHerdrIntegration",
+      "advisorJevBaseUrl",
+      "advisorJevClassifier",
       "advisorJevDigestMaxChars",
       "advisorJevFilterEnabled",
       "advisorJevFilterNoulMargin",
       "advisorJevFilterOverrideWindow",
       "advisorJevFilterSkipConfidence",
+      "advisorJevKeyProvider",
       "advisorJevModel",
       "advisorJevPricePerMtok",
       "advisorJevTimeoutMs",
@@ -368,6 +441,7 @@ describe("Config schema consistency", () => {
       "advisorToolPolicies",
       "advisorToolResultMaxBytes",
       "advisorToolResultMaxLines",
+      "advisorToolsEnabled",
       "advisorTrackedFileContent",
       "advisorUntrackedContent",
       "alwaysOn",
@@ -382,7 +456,7 @@ describe("Config schema consistency", () => {
     expect(new Set(schemaKeys).size).toBe(schemaKeys.length);
   });
 
-  test("persisted schema keys match the historical SAVED_CONFIG_KEYS list", () => {
+  test("persisted schema keys include every persisted setting", () => {
     expect([...SAVED_CONFIG_KEYS].toSorted()).toEqual([
       "advisor",
       "advisorAgentsMdContext",
@@ -398,11 +472,14 @@ describe("Config schema consistency", () => {
       "advisorGitContext",
       "advisorGitContextMaxChars",
       "advisorHerdrIntegration",
+      "advisorJevBaseUrl",
+      "advisorJevClassifier",
       "advisorJevDigestMaxChars",
       "advisorJevFilterEnabled",
       "advisorJevFilterNoulMargin",
       "advisorJevFilterOverrideWindow",
       "advisorJevFilterSkipConfidence",
+      "advisorJevKeyProvider",
       "advisorJevModel",
       "advisorJevPricePerMtok",
       "advisorJevTimeoutMs",
@@ -420,6 +497,7 @@ describe("Config schema consistency", () => {
       "advisorToolPolicies",
       "advisorToolResultMaxBytes",
       "advisorToolResultMaxLines",
+      "advisorToolsEnabled",
       "advisorTrackedFileContent",
       "advisorUntrackedContent",
       "alwaysOn",
@@ -431,7 +509,7 @@ describe("Config schema consistency", () => {
       "showUsageFooter",
       "simpleMode",
     ]);
-    expect(SAVED_CONFIG_KEYS).toHaveLength(46);
+    expect(SAVED_CONFIG_KEYS).toHaveLength(50);
     expect(CONFIG_SCHEMA.advisorOutcomeLogging.persisted).toBe(false);
   });
 });

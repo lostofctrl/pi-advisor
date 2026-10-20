@@ -11,6 +11,7 @@ import { registerCommands } from "../src/commands.ts";
 import { HerdrAdvisorActivity } from "../src/herdr.ts";
 import { AdvisorSessionState } from "../src/session-state.ts";
 import { parseAutomaticDecision, registerAdvisorTool } from "../src/tools.ts";
+import { withAgentDir } from "./helpers/config-fixture.ts";
 import { asExtensionContext } from "./helpers/extension-context.ts";
 import type { JsonValue } from "./helpers/extension-context.ts";
 import { mockPi } from "./helpers/mock-pi.ts";
@@ -52,6 +53,7 @@ describe("Extension Registration", () => {
         onChunk?.("thinking", "one");
         onChunk?.("thinking", "two");
         onChunk?.("thinking", "three");
+
         return Promise.resolve({
           adviceId: "advice-1",
           markdown: "Done.",
@@ -85,6 +87,7 @@ describe("Extension Registration", () => {
       consult: (_ctx, _question, _signal, onChunk) => {
         onChunk?.("thinking", "one");
         onChunk?.("thinking", "two");
+
         return Promise.reject(new Error("provider failed"));
       },
     });
@@ -112,6 +115,7 @@ describe("Extension Registration", () => {
     registerCommands(mockPi({ commands, sent }), {
       consult: (_ctx, question) => {
         receivedQuestion = question;
+
         return Promise.resolve({
           markdown: "Ship the focused fix.",
           thinkingText: "",
@@ -144,9 +148,11 @@ describe("Extension Registration", () => {
 
   test("shutdown releases only the Herdr activity owned by its runtime", () => {
     const reports: any[] = [];
+
     const activity = new HerdrAdvisorActivity((request) =>
       reports.push(request)
     );
+
     const runtimeAActivity = activity.createScope();
     const runtimeBActivity = activity.createScope();
     const runtimeAEvents = new Map<string, any>();
@@ -173,56 +179,59 @@ describe("Extension Registration", () => {
     expect(reports).toHaveLength(2);
   });
 
-  test("shows manual Advisor progress and forwards response chunks", async () => {
-    const commands = new Map<string, any>();
-    const statuses: (string | undefined)[] = [];
-    const chunks: string[] = [];
-    registerCommands(mockPi({ commands }), {
-      consult: (_ctx, _question, _signal, onChunk, onScout) => {
-        onScout?.({ model: "provider/executor", type: "call" });
-        onScout?.({
-          outcome: {
-            conversation: "selected evidence",
-            metrics: {
-              availableCount: 1,
-              inputBytes: 10,
-              latencyMs: 12,
-              omittedBeforeScout: 0,
-              selectedCount: 1,
+  test("shows manual Advisor progress and forwards response chunks", () =>
+    withAgentDir({}, async () => {
+      const commands = new Map<string, any>();
+      const statuses: (string | undefined)[] = [];
+      const chunks: string[] = [];
+      registerCommands(mockPi({ commands }), {
+        consult: (_ctx, _question, _signal, onChunk, onScout) => {
+          onScout?.({ model: "provider/executor", type: "call" });
+          onScout?.({
+            outcome: {
+              conversation: "selected evidence",
+              metrics: {
+                availableCount: 1,
+                inputBytes: 10,
+                latencyMs: 12,
+                omittedBeforeScout: 0,
+                selectedCount: 1,
+              },
+              model: "provider/executor",
+              ok: true,
+              selectedLabels: [],
+              selection: { selectedIds: [], synthesis: "" },
             },
-            model: "provider/executor",
-            ok: true,
-            selectedLabels: [],
-            selection: { selectedIds: [], synthesis: "" },
-          },
-          type: "success",
-        });
-        onChunk?.("Thinking about the request", "");
-        chunks.push("thinking");
-        onChunk?.("", "The answer is ready");
-        chunks.push("response");
-        return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
-      },
-    });
-    const ctx = asExtensionContext({
-      cwd: tmpdir(),
-      hasUI: true,
-      isProjectTrusted: () => false,
-      ui: {
-        setStatus(key: string, value: string | undefined) {
-          if (key === "advisor-manual") {
-            statuses.push(value);
-          }
+            type: "success",
+          });
+          onChunk?.("Thinking about the request", "");
+          chunks.push("thinking");
+          onChunk?.("", "The answer is ready");
+          chunks.push("response");
+
+          return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
         },
-      },
-    });
+      });
 
-    await commands.get("advisor-manual").handler("Check", ctx);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+      const ctx = asExtensionContext({
+        cwd: tmpdir(),
+        hasUI: true,
+        isProjectTrusted: () => false,
+        ui: {
+          setStatus(key: string, value: string | undefined) {
+            if (key === "advisor-manual") {
+              statuses.push(value);
+            }
+          },
+        },
+      });
 
-    expect(chunks).toEqual(["thinking", "response"]);
-    expect(statuses.every((status) => status === undefined)).toBe(true);
-  });
+      await commands.get("advisor-manual").handler("Check", ctx);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(chunks).toEqual(["thinking", "response"]);
+      expect(statuses.every((status) => status === undefined)).toBe(true);
+    }));
 
   test("adds an immediate Advisor call entry to the transcript", async () => {
     const commands = new Map<string, any>();
@@ -285,6 +294,7 @@ describe("Extension Registration", () => {
             },
             type: "success",
           });
+
           return Promise.resolve({ markdown: "Proceed.", thinkingText: "" });
         },
       }
@@ -311,10 +321,12 @@ describe("Extension Registration", () => {
     const commands = new Map<string, any>();
     const events = new Map<string, SessionShutdownHandler>();
     const sent: { message: any; options: any }[] = [];
+
     let resolveConsult!: (value: {
       markdown: string;
       thinkingText: string;
     }) => void;
+
     const pendingConsult = new Promise<{
       markdown: string;
       thinkingText: string;
@@ -359,6 +371,7 @@ describe("Extension Registration", () => {
       {
         consult: (_ctx, _question, _signal, _onChunk, onScout) => {
           lateScout = onScout;
+
           return new Promise(() => {});
         },
       }
@@ -374,30 +387,34 @@ describe("Extension Registration", () => {
     expect(entries).toEqual(["advisor-manual-call"]);
   });
 
-  test("keeps manual Scout progress out of the footer", async () => {
-    const commands = new Map<string, any>();
-    const events = new Map<string, any>();
-    const statuses: (string | undefined)[] = [];
-    registerCommands(mockPi({ commands, events }), {
-      consult: (_ctx, _question, _signal, _onChunk, onScout) => {
-        onScout?.({ model: "executor", type: "call" });
-        return new Promise(() => {});
-      },
-    });
-    const ctx = asExtensionContext({
-      cwd: tmpdir(),
-      hasUI: true,
-      isProjectTrusted: () => false,
-      ui: {
-        setStatus: (_key: string, value: string | undefined) =>
-          statuses.push(value),
-      },
-    });
-    await commands.get("advisor-manual").handler("", ctx);
-    expect(statuses.every((status) => status === undefined)).toBe(true);
-    events.get("session_shutdown")?.({ reason: "reload" }, ctx);
-    expect(statuses.every((status) => status === undefined)).toBe(true);
-  });
+  test("keeps manual Scout progress out of the footer", () =>
+    withAgentDir({}, async () => {
+      const commands = new Map<string, any>();
+      const events = new Map<string, any>();
+      const statuses: (string | undefined)[] = [];
+      registerCommands(mockPi({ commands, events }), {
+        consult: (_ctx, _question, _signal, _onChunk, onScout) => {
+          onScout?.({ model: "executor", type: "call" });
+
+          return new Promise(() => {});
+        },
+      });
+
+      const ctx = asExtensionContext({
+        cwd: tmpdir(),
+        hasUI: true,
+        isProjectTrusted: () => false,
+        ui: {
+          setStatus: (_key: string, value: string | undefined) =>
+            statuses.push(value),
+        },
+      });
+
+      await commands.get("advisor-manual").handler("", ctx);
+      expect(statuses.every((status) => status === undefined)).toBe(true);
+      events.get("session_shutdown")?.({ reason: "reload" }, ctx);
+      expect(statuses.every((status) => status === undefined)).toBe(true);
+    }));
 
   test("replaces an in-flight manual consultation with a newer request", async () => {
     const commands = new Map<string, any>();
@@ -407,7 +424,9 @@ describe("Extension Registration", () => {
         if (!signal) {
           throw new Error("Manual consultation requires an abort signal.");
         }
+
         signals.push(signal);
+
         return new Promise<{ markdown: string; thinkingText: string }>(
           () => {}
         );

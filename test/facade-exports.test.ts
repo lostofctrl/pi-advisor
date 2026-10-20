@@ -233,6 +233,7 @@ describe("config compatibility facade", () => {
   test("keeps facade and direct state imports live after setter mutation", () => {
     const previous = facadeContextMaxCharsRef;
     const next = previous === 0 ? 1 : 0;
+
     try {
       facadeSetContextMaxCharsRef(next);
       expect(facadeContextMaxCharsRef).toBe(next);

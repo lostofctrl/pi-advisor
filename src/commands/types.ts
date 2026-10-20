@@ -56,6 +56,8 @@ export interface CommandRuntime {
   readonly advisorSessionState: AdvisorSessionState;
   readonly herdrActivity: HerdrAdvisorActivityScope;
   flowEnabled: () => boolean;
+  toolAvailabilityRevision: number;
+  noteAdvisorToolsStateChange: () => void;
   readonly manualConsultations: Map<AbortController, symbol>;
   readonly manualProgress: Map<string, ManualAdvisorProgressState>;
   manualProgressSequence: number;

@@ -38,17 +38,22 @@ export const legacyAdvisorConfigPath = (): string =>
  */
 export const resolveAdvisorConfigPath = (): string => {
   const override = process.env[ADVISOR_CONFIG_PATH_ENV]?.trim();
+
   if (override) {
     if (!isAbsolute(override)) {
       throw new Error(
         `${ADVISOR_CONFIG_PATH_ENV} must be an absolute path; got ${JSON.stringify(override)}.`
       );
     }
+
     return override;
   }
+
   const namespaced = defaultAdvisorConfigPath();
+
   if (!existsSync(namespaced) && existsSync(legacyAdvisorConfigPath())) {
     return legacyAdvisorConfigPath();
   }
+
   return namespaced;
 };

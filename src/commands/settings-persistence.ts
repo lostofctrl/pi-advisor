@@ -17,14 +17,12 @@ import {
   setAdvisorGitContextRef,
   setAdvisorHerdrIntegrationRef,
   setAdvisorJevDigestMaxCharsRef,
+  setAdvisorJevClassifierRef,
   setAdvisorJevFilterEnabledRef,
   setAdvisorJevFilterNoulMarginRef,
   setAdvisorJevFilterOverrideWindowRef,
   setAdvisorJevFilterSkipConfidenceRef,
-  setAdvisorJevModelRef,
-  setAdvisorJevPricePerMtokRef,
   setAdvisorJevTimeoutMsRef,
-  setAdvisorJevTransportRef,
   setAdvisorJevTurnGateEveryTurnsRef,
   setAdvisorJevTurnGateNoulThresholdRef,
   setAdvisorLoopThresholdRef,
@@ -41,6 +39,7 @@ import {
   setAdvisorToolResultMaxLinesRef,
   setAdvisorTrackedFileContentRef,
   setAdvisorUntrackedContentRef,
+  setAdvisorToolsEnabledRef,
   setAlwaysOnRef,
   setContextMaxCharsRef,
   setShowUsageDetailsRef,
@@ -53,10 +52,7 @@ import {
   DEFAULT_JEV_FILTER_NOUL_MARGIN,
   DEFAULT_JEV_FILTER_OVERRIDE_WINDOW,
   DEFAULT_JEV_FILTER_SKIP_CONFIDENCE,
-  DEFAULT_JEV_MODEL,
-  DEFAULT_JEV_PRICE_PER_MTOK,
   DEFAULT_JEV_TIMEOUT_MS,
-  DEFAULT_JEV_TRANSPORT,
   DEFAULT_JEV_TURN_GATE_EVERY_TURNS,
   DEFAULT_JEV_TURN_GATE_NOUL_THRESHOLD,
   DEFAULT_SCOUT_TIMEOUT_MS,
@@ -88,6 +84,7 @@ const applySessionSettings = (settings: AdvisorSettings) => {
   setShowUsageDetailsRef(settings.showUsageDetails ?? true);
   setShowUsageFooterRef(settings.showUsageFooter ?? false);
   setSimpleModeRef(settings.simpleMode ?? false);
+  setAdvisorToolsEnabledRef(settings.advisorToolsEnabled ?? true);
   setAlwaysOnRef(settings.alwaysOn ?? false);
   setAdvisorFailureModeRef(settings.failureMode ?? "block-session");
   setAdvisorHerdrIntegrationRef(settings.herdrIntegration ?? true);
@@ -95,6 +92,7 @@ const applySessionSettings = (settings: AdvisorSettings) => {
 
 const applyJevSettings = (settings: AdvisorSettings) => {
   setAdvisorJevFilterEnabledRef(settings.jevFilterEnabled ?? false);
+  setAdvisorJevClassifierRef(settings.jevClassifier);
   setAdvisorJevFilterSkipConfidenceRef(
     settings.jevFilterSkipConfidence ?? DEFAULT_JEV_FILTER_SKIP_CONFIDENCE
   );
@@ -104,15 +102,10 @@ const applyJevSettings = (settings: AdvisorSettings) => {
   setAdvisorJevFilterOverrideWindowRef(
     settings.jevFilterOverrideWindow ?? DEFAULT_JEV_FILTER_OVERRIDE_WINDOW
   );
-  setAdvisorJevModelRef(settings.jevModel ?? DEFAULT_JEV_MODEL);
   setAdvisorJevTimeoutMsRef(settings.jevTimeoutMs ?? DEFAULT_JEV_TIMEOUT_MS);
   setAdvisorJevDigestMaxCharsRef(
     settings.jevDigestMaxChars ?? DEFAULT_JEV_DIGEST_MAX_CHARS
   );
-  setAdvisorJevPricePerMtokRef(
-    settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK
-  );
-  setAdvisorJevTransportRef(settings.jevTransport ?? DEFAULT_JEV_TRANSPORT);
   setAdvisorJevTurnGateEveryTurnsRef(
     settings.jevTurnGateEveryTurns ?? DEFAULT_JEV_TURN_GATE_EVERY_TURNS
   );
@@ -150,12 +143,14 @@ export const saveAdvisorSettings = (
   options: SaveAdvisorSettingsOptions = {}
 ) => {
   const previous = getAdvisorSettings();
+
   try {
     applyAdvisorSettings(settings);
     saveConfig(ctx, {
       persistAdvisor: true,
       persistExecutor: false,
     });
+
     if (!options.skipOutcomeLogging) {
       saveGlobalOutcomeLogging(settings.outcomeLogging ?? false);
     }

@@ -10,6 +10,57 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Use the current chat model and thinking level as the Executor; `/advisor` no longer changes the active model or persists separate Executor settings. Existing `executor` and `executorEffort` values are ignored.
 - Resolved the Advisor configuration file (`advisor.json`) through `PI_ADVISOR_CONFIG_PATH` (absolute path override), then a namespaced `<agentDir>/pi-web/advisor.json` default, falling back to the legacy shared `<agentDir>/advisor.json` only while the namespaced file does not exist yet. Pi CLI's official package is unaffected; this fork's bundle keeps its configuration separate from the CLI's.
+- Updated Oxfmt to 0.74.0.
+
+## 0.14.1 - 2026-10-19
+
+### Changed
+
+- Updated development dependencies: Knip to 6.42.0 and TypeBox to 1.4.2; the supported TypeBox peer range remains `^1.1.38`.
+
+### Fixed
+
+- Preserve the Executor's cached prompt prefix when Advisor call budgets change, including providers that collapse mid-conversation system messages. Current allowances are appended as hidden conversation messages at run start and after consultation turns, with explicit unlimited and Simple mode reports.
+
+## 0.14.0 - 2026-10-16
+
+### Added
+
+- Added a dedicated masked Jev API Key option with isolated secure storage. Keys entered through this option are never migrated from legacy Jev stores or Pi provider credentials.
+
+### Changed
+
+- Updated development dependencies: Pi packages (`pi-ai`, `pi-coding-agent`, `pi-tui`) to 1.3.0 and TypeBox to 1.4.1; the supported peer range stays `^1.0.0`. The codemode composition tests now retry while Pi's process-wide codemode worker limit still counts finished workers as shutting down, matching Pi 1.3.0's admission behavior.
+- Removed dead code surfaced by a Knip audit: the unused `writeJevClassifierKeyCandidate` and `hasRuntimeSecretStore` helpers and the unreferenced `TurnGateQuestions` and `SettingValue` types are gone, about thirty further module-internal symbols are no longer exported, and the turn-gate result renderer now derives its partial details type from the turn-gate contract to reduce type drift.
+- Knip now runs as a CI gate and passes from a clean configuration: the audit wrapper is invoked through `bun run` so Knip resolves it, and redundant ignore patterns were dropped from `knip.json`.
+- Jev screening and turn-gate now use Pi's native classifier registry instead of pi-advisor's duplicate Jev inference clients. Existing screening policy is unchanged; provider authentication stays Pi-managed, and screening classifier input cost uses the selected model's Pi catalog rates.
+- Screening classifier usage is included once with Advisor usage in `ask_advisor` tool totals. Manual and turn-gate classifier usage remains in the local Jev summary.
+- The Executor now follows the model and thinking level of the current Pi session by default. `/advisor` no longer asks for or switches to an Executor model, and `/model` selections are not saved as the Executor. Pick an explicit Executor in `/advisor-models`, via `executor=` on `/advisor`, or in `advisor.json` to pin one; choose **Current session model** in `/advisor-models` to return to following the session.
+
+## 0.13.2 - 2026-10-14
+
+### Changed
+
+- Updated development dependencies: Pi packages to 1.2.0, Oxlint and plugins to 1.88.0, Oxfmt to 0.73.0, TypeBox to 1.3.37, and Ultracite to 8.0.1; adopted Ultracite 8's readable-spacing rule across the codebase and excluded the deliberately JSON-shaped benchmark `traps.toml` fixtures from Oxfmt's new TOML support.
+
+## 0.13.1 - 2026-10-11
+
+### Fixed
+
+- Persisted `/advisor-off` across new sessions by adding a separately configurable Advisor-tools opt-out, while preserving default on-demand tool availability; successful `/advisor` activation re-enables the tools.
+
+## 0.13.0 - 2026-10-10
+
+### Added
+
+- Added a **Jev provider** row in `/advisor-settings` that owns the screening and turn-gate provider, including a new System One–compatible option for pointing pi-advisor at any deployment that speaks TypeSafe's System One contract — your own gateway, a third-party compatible host, or a decision model running on `localhost`. Set `advisorJevBaseUrl` to the endpoint root (`/v1/systemone` is appended) and supply its key either from `JEV_API_KEY`, the guided secure store, or an existing Pi provider login via `advisorJevKeyProvider`. The provider is live-verified before it is saved.
+
+### Changed
+
+- Improved Herdr display reliability by serializing Advisor metadata reports per source, retrying metadata after failed delivery, and avoiding duplicate notification retries after payloads are written.
+- Jev/Decisions provider selection moved out of the consultation-filter row into its own row, so the provider can be configured and verified without enabling screening. The filter row now only switches the filter on and off, and it refuses to enable while no provider resolves. `AdvisorSettingsSelectorOptions` gained `onJevFilter` and `onJevProvider` for the two rows; the combined `onJevSetup` is deprecated and is still called when neither is supplied.
+- Updated Pi development dependencies to 1.1.0 and refreshed transitive dependency versions.
+- Updated `@types/node` to 26.6.5, `bun-types` to 1.4.3, Knip to 6.41.0, and pinned CI to Bun 1.4.3. Switched the typecheck script from `tsc` to `bun check` and added a contributor install guard requiring Bun 1.4.3 or newer.
 
 ## 0.12.0 - 2026-10-07
 

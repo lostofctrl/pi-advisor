@@ -8,9 +8,11 @@ import { parseArgs } from "../config/args.ts";
 import {
   advisorEffortRef,
   advisorRef,
+  advisorToolsEnabledRef,
   contextMaxCharsRef,
   setAdvisorEffortRef,
   setAdvisorRef,
+  setAdvisorToolsEnabledRef,
   setContextMaxCharsRef,
 } from "../config/state.ts";
 import { saveConfig } from "../config/storage.ts";
@@ -19,6 +21,7 @@ import {
   loadCommandConfig,
   prepareActivationModels,
 } from "./activation-preparation.ts";
+import { setAdvisorToolsActive } from "./advisor-tools.ts";
 import {
   ADVISOR_ACTIVATION_EXPLANATION,
   findConfiguredModel,
@@ -27,12 +30,20 @@ import {
 import { notify } from "./runtime.ts";
 import type { CommandRuntime } from "./types.ts";
 
-const resolveActivationModels = async (ctx: ExtensionContext) => {
-  const executor = ctx.model;
-  if (!executor) {
+const resolveActivationModels = async (
+  ctx: ExtensionContext,
+  canContinue: () => boolean
+) => {
+  if (!canContinue()) {
+    return { cancelled: true };
+  }
+
+  if (!ctx.model) {
     return { error: "Select a chat model before enabling Advisor flow" };
   }
+
   const advisor = findConfiguredModel(ctx, advisorRef);
+
   if (!advisor) {
     return {
       error: advisorRef
@@ -40,11 +51,64 @@ const resolveActivationModels = async (ctx: ExtensionContext) => {
         : "Advisor model not configured",
     };
   }
+
   const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
+
+  if (!canContinue()) {
+    return { cancelled: true };
+  }
+
   if (!(advisorAuth.ok && advisorAuth.apiKey)) {
     return { error: `No API key for Advisor ${advisorRef}` };
   }
+
   return {};
+};
+
+const restoreActivationRefsIfCurrent = (
+  canContinue: () => boolean,
+  restoreRefs: () => void
+) => {
+  if (canContinue()) {
+    restoreRefs();
+  }
+};
+
+const liveRefSnapshot = () => ({
+  advisor: advisorRef,
+  advisorEffort: advisorEffortRef,
+  contextMaxChars: contextMaxCharsRef,
+});
+
+const persistSuccessfulActivation = (
+  ctx: ExtensionContext,
+  shouldSave: boolean,
+  reenableTools: boolean,
+  restoreRefs: () => void
+) => {
+  if (!shouldSave) {
+    return true;
+  }
+
+  try {
+    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
+  } catch (saveError) {
+    if (!reenableTools) {
+      throw saveError;
+    }
+
+    setAdvisorToolsEnabledRef(false);
+    restoreRefs();
+
+    const message =
+      saveError instanceof Error ? saveError.message : String(saveError);
+
+    notify(ctx, `Could not save Advisor activation: ${message}`, "error");
+
+    return false;
+  }
+
+  return true;
 };
 
 export const activateAdvisor = async (
@@ -56,21 +120,38 @@ export const activateAdvisor = async (
   if (!loadCommandConfig(ctx)) {
     return;
   }
-  const previous = {
-    advisor: advisorRef,
-    advisorEffort: advisorEffortRef,
-    contextMaxChars: contextMaxCharsRef,
+
+  const { toolAvailabilityRevision } = runtime;
+
+  const canContinue = () =>
+    runtime.toolAvailabilityRevision === toolAvailabilityRevision;
+
+  const previous = liveRefSnapshot();
+
+  // Restore only values still owned by this activation, not concurrent saves.
+  const restoreRefs = (attempted: ReturnType<typeof liveRefSnapshot>) => {
+    if (advisorRef === attempted.advisor) {
+      setAdvisorRef(previous.advisor);
+    }
+
+    if (advisorEffortRef === attempted.advisorEffort) {
+      setAdvisorEffortRef(previous.advisorEffort);
+    }
+
+    if (contextMaxCharsRef === attempted.contextMaxChars) {
+      setContextMaxCharsRef(previous.contextMaxChars);
+    }
   };
-  const restoreRefs = () => {
-    setAdvisorRef(previous.advisor);
-    setAdvisorEffortRef(previous.advisorEffort);
-    setContextMaxCharsRef(previous.contextMaxChars);
-  };
+
+  let attempted = liveRefSnapshot();
   const advisorOverride = hasAdvisorOverride(args);
   const argumentError = parseArgs(args);
+
   if (argumentError) {
-    restoreRefs();
+    attempted = liveRefSnapshot();
+    restoreRefs(attempted);
     notify(ctx, argumentError, "error");
+
     return;
   }
 
@@ -79,30 +160,50 @@ export const activateAdvisor = async (
     announce,
     advisorOverride
   );
+
+  attempted = liveRefSnapshot();
+
   if (!prepared) {
-    restoreRefs();
+    restoreActivationRefsIfCurrent(canContinue, () => restoreRefs(attempted));
+
     return;
   }
-  const { error } = await resolveActivationModels(ctx);
+
+  const { cancelled, error } = await resolveActivationModels(ctx, canContinue);
+
+  if (cancelled || !canContinue()) {
+    return;
+  }
+
   if (error) {
-    restoreRefs();
+    restoreRefs(attempted);
     notify(ctx, error, "error");
+
     return;
   }
-  // Persist only the Advisor configuration; the Executor is always the active
-  // chat model and must not be pinned to advisor.json.
-  if (args.trim() || prepared.pickedModels) {
-    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
+
+  const reenableTools = !advisorToolsEnabledRef;
+
+  if (reenableTools) {
+    setAdvisorToolsEnabledRef(true);
   }
-  if (!runtime.flowEnabled()) {
-    runtime.pi.setActiveTools([
-      ...runtime.pi.getActiveTools(),
-      "ask_advisor",
-      "record_advisor_outcome",
-    ]);
+
+  const shouldSave = Boolean(
+    args.trim() || prepared.pickedModels || reenableTools
+  );
+
+  if (
+    !persistSuccessfulActivation(ctx, shouldSave, reenableTools, () =>
+      restoreRefs(liveRefSnapshot())
+    )
+  ) {
+    return;
   }
+
+  setAdvisorToolsActive(runtime.pi, true);
   const activeModel = ctx.model;
   runtime.updateSameModelNotice(ctx, activeModel);
+
   if (announce) {
     const activeExecutorRef = effectiveExecutorRef(ctx);
     const activeExecutorEffort = effectiveExecutorEffort(ctx);

@@ -53,10 +53,12 @@ export class MaskedInput implements Component, Focusable {
     // SAFETY: compatibility-only read of Input's private cursor; Input does not expose it.
     const { cursor } = this.input as InputWithCursor;
     const masked = `${"•".repeat(Math.min(cursor, value.length))}█${"•".repeat(Math.max(0, value.length - cursor))}`;
+
     const placeholder =
       value.length === 0 && this.options.placeholder
         ? this.options.placeholder
         : masked;
+
     return [truncateToWidth(placeholder, Math.max(1, width))];
   }
 }

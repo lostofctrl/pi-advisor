@@ -38,6 +38,7 @@ const custom = async (factory: any) =>
       {},
       resolve
     );
+
     focusSettingsRow(selector, "Experimental Advisor Scout");
     changeSetting(selector, "Experimental Advisor Scout");
     changeSetting(selector, "Max Advisor calls/session");
@@ -52,13 +53,17 @@ const reopened = async (factory: any) =>
       {},
       resolve
     );
+
     const initialScreen = stripTerminalSequences(
       selector.render(100).join("\n")
     );
+
     expect(initialScreen).toMatch(SCOUT_ON_PATTERN);
+
     for (const key of ["m", "a", "x"]) {
       selector.handleInput(key);
     }
+
     const screen = stripTerminalSequences(selector.render(100).join("\n"));
     expect(screen).toMatch(MAX_CALLS_ROW_PATTERN);
     selector.handleInput("\u001B");
@@ -72,6 +77,7 @@ const openSelector = (overrides: {
   presets?: { description: string; label: string; value: number }[];
 }) => {
   const saved: any[] = [];
+
   const selector = new AdvisorSettingsSelector({
     effortLevels: ["Default (Model Default)", "high"],
     initial: {
@@ -97,6 +103,7 @@ const openSelector = (overrides: {
     theme: selectorTheme,
     tui: { requestRender: () => {} },
   });
+
   return { saved, selector };
 };
 
@@ -104,9 +111,9 @@ describe("Advisor settings selector", () => {
   test("uses a compact searchable settings list and saves each change", () => {
     const { saved, selector } = openSelector({});
     const screen = selector.render(80).join("\n");
+    expect(screen).toContain("Advisor tools");
     expect(screen).toContain("Advisor reasoning");
     expect(screen).toContain("Experimental Advisor Scout");
-    expect(screen).toContain("Show usage and cost details");
     expect(screen).not.toContain("Save changes");
     expect(screen).toContain("Type to search");
 
@@ -120,16 +127,19 @@ describe("Advisor settings selector", () => {
     for (const key of ["s", "e", "c", "r", "e", "t"]) {
       selector.handleInput(key);
     }
+
     expect(selector.render(100).join("\n")).toContain("Redact common secrets");
   });
 
   test("uses arrow keys to change the selected setting", () => {
     let saved: any;
+
     const { selector } = openSelector({
       onChange: (settings) => {
         saved = settings;
       },
     });
+
     selector.handleInput("\u001B[C");
     expect(saved.contextMaxChars).toBe(10_000);
     selector.handleInput("\u001B[D");
@@ -138,12 +148,14 @@ describe("Advisor settings selector", () => {
 
   test("uses Space to toggle and auto-save a setting", () => {
     let saved: any;
+
     const { selector } = openSelector({
       onChange: (settings) => {
         saved = settings;
       },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     focusSettingsRow(selector, "Always on");
     selector.handleInput(" ");
     expect(saved.alwaysOn).toBe(true);
@@ -151,11 +163,13 @@ describe("Advisor settings selector", () => {
 
   test("shows AGENTS.md context on by default and persists the toggle", () => {
     let saved: any;
+
     const { selector } = openSelector({
       onChange: (settings) => {
         saved = settings;
       },
     });
+
     focusSettingsRow(selector, "AGENTS.md context");
     expect(stripTerminalSequences(selector.render(120).join("\n"))).toContain(
       "AGENTS.md context"
@@ -176,14 +190,17 @@ describe("Advisor settings selector", () => {
         },
       ],
     });
+
     const screen = selector.render(100).join("\n");
     const stripped = stripTerminalSequences(screen);
     const lines = stripped.split("\n");
     const meterLine = lines.find((line) => line.includes("none"));
     const labelLine = lines.find((line) => line.trim() === "ALL");
+
     if (!(meterLine && labelLine)) {
       throw new Error("Context meter did not render its marker and label");
     }
+
     expect(meterLine).toContain("full");
     expect(meterLine).toContain("●");
     expect(labelLine.indexOf("ALL")).toBe(meterLine.indexOf("●") - 1);
@@ -195,12 +212,14 @@ describe("Advisor settings selector", () => {
       initial: { simpleMode: true },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     expect(selector.render(100).join("\n")).toContain("\u001B[38;2;");
     selector.dispose();
   });
 
   test("hides Scout in Simple mode without losing its saved value", () => {
     let saved: any;
+
     const { selector } = openSelector({
       initial: { scoutEnabled: true, simpleMode: true },
       onSave: (settings) => {
@@ -208,6 +227,7 @@ describe("Advisor settings selector", () => {
       },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     expect(selector.render(100).join("\n")).not.toContain(
       "Experimental Advisor Scout"
     );
@@ -234,6 +254,7 @@ describe("Advisor settings selector", () => {
 
   test("preserves explicit privacy settings through the selector", () => {
     let saved: any;
+
     const { selector } = openSelector({
       initial: {
         redactSecrets: true,
@@ -244,6 +265,7 @@ describe("Advisor settings selector", () => {
       },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     changeSetting(selector, "Simple mode");
     expect(saved).toMatchObject({
       redactSecrets: true,
@@ -256,6 +278,7 @@ describe("Advisor settings selector", () => {
       onSave: () => {},
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     focusSettingsRow(selector, "Tool disclosure policies");
     selector.handleInput("\r");
     // SAFETY: settingsList.submenuComponent is the editor the selector renders for this row.
@@ -272,12 +295,14 @@ describe("Advisor settings selector", () => {
 
   test("selects multiple models from the Advisor model whitelist menu", () => {
     let saved: any;
+
     const { selector } = openSelector({
       onSave: (settings) => {
         saved = settings;
       },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     focusSettingsRow(selector, "Advisor model whitelist");
     selector.handleInput("\r");
     selector.handleInput(" ");
@@ -289,17 +314,21 @@ describe("Advisor settings selector", () => {
 
   test("edits the custom invocation rule inline", () => {
     let saved: any;
+
     const { selector } = openSelector({
       onSave: (settings) => {
         saved = settings;
       },
       presets: [{ description: "No history", label: "0", value: 0 }],
     });
+
     focusSettingsRow(selector, "Custom invocation");
     selector.handleInput("\r");
+
     for (const character of "deploy") {
       selector.handleInput(character);
     }
+
     selector.handleInput("\r");
     expect(saved.customRule).toBe("deploy");
   });
@@ -308,6 +337,7 @@ describe("Advisor settings selector", () => {
     await withAgentDir({ advisorMaxCallsPerSession: 5 }, async (agentDir) => {
       const commands = new Map<string, any>();
       registerCommands(mockPi({ commands }));
+
       const context = asExtensionContext({
         cwd: "/",
         hasUI: true,
@@ -331,6 +361,7 @@ describe("Advisor settings selector", () => {
       { length: 14 },
       (_, index) => `line ${index + 1}`
     ).join("\n");
+
     setAdvisorCollapseResponsesRef(false);
     expect(adviceForDisplay(longAnswer, false)).toBe(longAnswer);
     setAdvisorCollapseResponsesRef(true);

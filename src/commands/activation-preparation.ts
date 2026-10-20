@@ -26,6 +26,7 @@ export interface PreparedActivationModels {
 export const loadCommandConfig = (ctx: ExtensionContext) => {
   try {
     loadConfig(ctx);
+
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -34,6 +35,7 @@ export const loadCommandConfig = (ctx: ExtensionContext) => {
       `Advisor command could not load configuration: ${message} Fix advisor.json and retry.`,
       "error"
     );
+
     return false;
   }
 };
@@ -46,14 +48,18 @@ export const prepareActivationModels = async (
   const currentModelRef = ctx.model
     ? `${ctx.model.provider}/${ctx.model.id}`
     : undefined;
+
   if (!currentModelRef) {
     notify(ctx, "Select a chat model before enabling Advisor flow", "error");
+
     return;
   }
+
   const storedRefs = getPersistedModelRefs();
   const persisted = { ...storedRefs, executor: currentModelRef };
   const availableRefs = getAvailableModelRefs(ctx);
   const availableRefSet = availableRefs ? new Set(availableRefs) : undefined;
+
   const explicitError = getExplicitModelError(
     ctx,
     advisorRef,
@@ -61,8 +67,10 @@ export const prepareActivationModels = async (
     advisorOverride,
     availableRefSet
   );
+
   if (explicitError) {
     notify(ctx, explicitError, "error");
+
     return;
   }
 
@@ -76,6 +84,7 @@ export const prepareActivationModels = async (
     advisorOverride,
     availableRefSet
   );
+
   if (!plan.selectAdvisor) {
     return { pendingExecutor: plan.pendingExecutor, pickedModels: false };
   }
@@ -88,8 +97,10 @@ export const prepareActivationModels = async (
       "Advisor model is not configured or available. Run /advisor to choose it.",
       "error"
     );
+
     return;
   }
+
   const selection = await selectAdvisorModels(ctx, {
     advisor: advisorOverride || persisted.advisor ? advisorRef : "",
     advisorEffort: advisorEffortRef,
@@ -99,11 +110,14 @@ export const prepareActivationModels = async (
     selectAdvisor: plan.selectAdvisor,
     selectExecutor: false,
   });
+
   if (!selection) {
     return;
   }
+
   setAdvisorRef(selection.advisor);
   setAdvisorFallbackModelRef(selection.advisorFallbackModel);
   setAdvisorEffortRef(selection.advisorEffort);
+
   return { pendingExecutor: plan.pendingExecutor, pickedModels: true };
 };

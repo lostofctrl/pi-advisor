@@ -7,15 +7,14 @@ import {
   DEFAULT_JEV_FILTER_NOUL_MARGIN,
   DEFAULT_JEV_FILTER_OVERRIDE_WINDOW,
   DEFAULT_JEV_FILTER_SKIP_CONFIDENCE,
-  DEFAULT_JEV_MODEL,
-  DEFAULT_JEV_PRICE_PER_MTOK,
   DEFAULT_JEV_TIMEOUT_MS,
-  DEFAULT_JEV_TRANSPORT,
   DEFAULT_JEV_TURN_GATE_NOUL_THRESHOLD,
   DEFAULT_SCOUT_TIMEOUT_MS,
 } from "../config/types.ts";
 import { isValidAdvisorToolPolicies } from "../config/validation.ts";
-import { JevSetupSubmenu } from "./jev-setup-submenu.ts";
+import type { JevClassifierKeySnapshot } from "../jev/classifier-key-store.ts";
+import { JevClassifierSubmenu } from "./jev-classifier-submenu.ts";
+import { JevFilterSubmenu } from "./jev-filter-submenu.ts";
 import { SearchableModelMultiSelector } from "./model-multi-selector.ts";
 import { SearchableModelSelector } from "./model-selector.ts";
 import {
@@ -33,8 +32,9 @@ import { FALLBACK_ADVISOR_MODEL_DISABLED } from "./types.ts";
 import type {
   AdvisorSettings,
   ContextPreset,
-  JevSetupDeps,
-  JevSetupSelection,
+  JevClassifierRegistryAccess,
+  JevFilterSelection,
+  JevProviderSelection,
   RenderRequester,
 } from "./types.ts";
 
@@ -44,9 +44,18 @@ export interface SettingsItemsOptions {
   modelWhitelist: SettingItem;
   presets: ContextPreset[];
   settings: AdvisorSettings;
-  afterJevSetup?: () => void;
-  jevSetupDeps?: JevSetupDeps;
-  onJevSetup?: (selection: JevSetupSelection) => boolean;
+  jevClassifierRegistry?: JevClassifierRegistryAccess;
+  jevKeyDeps?: {
+    resolveClassifierKey?: () => Promise<JevClassifierKeySnapshot>;
+    persistClassifierKey?: (
+      key: string
+    ) => Promise<{ ok: boolean; message: string }>;
+    restoreClassifierKey?: (
+      previous: JevClassifierKeySnapshot
+    ) => Promise<boolean>;
+  };
+  onJevFilter?: (selection: JevFilterSelection) => boolean;
+  onJevProvider?: (selection: JevProviderSelection) => boolean;
   theme: Theme;
   tui: RenderRequester;
 }
@@ -67,6 +76,7 @@ const toggle = (
 
 const scoutTimeoutItem = (settings: AdvisorSettings): SettingItem => {
   const timeoutMs = settings.scoutTimeoutMs ?? DEFAULT_SCOUT_TIMEOUT_MS;
+
   return {
     currentValue: String(timeoutMs),
     description:
@@ -80,28 +90,57 @@ const scoutTimeoutItem = (settings: AdvisorSettings): SettingItem => {
   };
 };
 
+const jevFilterRowValue = (settings: AdvisorSettings) => {
+  if (!settings.jevFilterEnabled) {
+    return "Off";
+  }
+
+  return settings.jevClassifier ? "On" : "On (unavailable: no classifier)";
+};
+
 const jevItems = (
   settings: AdvisorSettings,
   theme: Theme,
   tui: RenderRequester,
-  jevSetupDeps?: JevSetupDeps,
-  onJevSetup?: (selection: JevSetupSelection) => boolean,
-  afterJevSetup?: () => void
+  jevClassifierRegistry?: JevClassifierRegistryAccess,
+  jevKeyDeps?: SettingsItemsOptions["jevKeyDeps"],
+  onJevFilter?: (selection: JevFilterSelection) => boolean,
+  onJevProvider?: (selection: JevProviderSelection) => boolean
 ): SettingItem[] => [
   {
-    currentValue: settingValue(settings.jevFilterEnabled, false),
+    currentValue: settings.jevClassifier ?? "Choose classifier",
     description:
-      "Screen low-stakes ask_advisor consultations with Jev/Decisions; guided setup verifies credentials.",
+      "Select a Pi-authenticated classifier or explicitly configure the separate Jev API Key option.",
+    id: "jevProvider",
+    label: "Jev classifier",
+    submenu: (currentValue, done) =>
+      new JevClassifierSubmenu({
+        currentValue,
+        done,
+        keybindings: getKeybindings(),
+        modelRegistry: jevClassifierRegistry,
+        onSelection: onJevProvider,
+        persistKey: jevKeyDeps?.persistClassifierKey,
+        resolveStoredKey: jevKeyDeps?.resolveClassifierKey,
+        restoreKey: jevKeyDeps?.restoreClassifierKey,
+        theme,
+        tui,
+      }),
+  },
+  {
+    currentValue: jevFilterRowValue(settings),
+    description:
+      "Screen low-stakes ask_advisor consultations with the selected Jev provider.",
     id: "jevFilter",
     label: "Jev/Decisions consultation filter",
     submenu: (currentValue, done) =>
-      new JevSetupSubmenu({
-        afterSelection: afterJevSetup,
-        currentTransport: settings.jevTransport ?? DEFAULT_JEV_TRANSPORT,
+      new JevFilterSubmenu({
+        currentClassifier: settings.jevClassifier,
         currentValue,
         done,
-        onSelection: onJevSetup,
-        setupDeps: jevSetupDeps,
+        modelRegistry: jevClassifierRegistry,
+        onSelection: onJevFilter,
+        resolveClassifierKey: jevKeyDeps?.resolveClassifierKey,
         theme,
         tui,
       }),
@@ -144,23 +183,6 @@ const jevItems = (
     ).map((value) => `${value} turns`),
   },
   {
-    currentValue: settings.jevModel ?? DEFAULT_JEV_MODEL,
-    description: "TypeSafe Jev model used for screening and turn-gate checks.",
-    id: "jevModel",
-    label: "Jev model",
-    submenu: (_currentValue, done) =>
-      new TextSettingSubmenu({
-        description:
-          "Enter a TypeSafe model name (for example jev-latest or jev-1.13.0).",
-        initial: settings.jevModel ?? DEFAULT_JEV_MODEL,
-        onCancel: done,
-        onSubmit: (value) => ({ value: value.trim() || DEFAULT_JEV_MODEL }),
-        theme,
-        title: "Jev model",
-        tui,
-      }),
-  },
-  {
     currentValue: String(settings.jevTimeoutMs ?? DEFAULT_JEV_TIMEOUT_MS),
     description: "Total wall-time budget for one Jev call, including retries.",
     id: "jevTimeoutMs",
@@ -182,19 +204,7 @@ const jevItems = (
       [0, 1000, 2000, 4000, 8000, 15_000]
     ),
   },
-  {
-    currentValue: String(
-      settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK
-    ),
-    description:
-      "TypeSafe/OpenRouter estimated input price per million tokens; ignored for OpenAI Decisions, whose cost is unavailable.",
-    id: "jevPricePerMtok",
-    label: "Jev price/Mtok",
-    values: numericValues(
-      settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK,
-      [0.01, 0.02, 0.042, 0.05, 0.1]
-    ),
-  },
+
   {
     currentValue:
       settings.jevTurnGateEveryTurns === 0 ||
@@ -295,9 +305,10 @@ export const createSettingsItems = ({
   modelWhitelist,
   presets,
   settings,
-  afterJevSetup,
-  jevSetupDeps,
-  onJevSetup,
+  jevClassifierRegistry,
+  jevKeyDeps,
+  onJevFilter,
+  onJevProvider,
   theme,
   tui,
 }: SettingsItemsOptions): SettingItem[] => {
@@ -310,9 +321,17 @@ export const createSettingsItems = ({
       values: presets.map((preset) => preset.label),
     },
     {
+      currentValue: settingValue(settings.advisorToolsEnabled, true),
+      description:
+        "Allow the model to call the Advisor tools; /advisor-off disables them across sessions.",
+      id: "advisorToolsEnabled",
+      label: "Advisor tools",
+      values: TOGGLE_VALUES,
+    },
+    {
       currentValue: settingValue(settings.simpleMode, false),
       description:
-        "Keep the Advisor available on demand without automatic gates or blocks.",
+        "Keep enabled Advisor tools available on demand without automatic gates or blocks.",
       id: "simpleMode",
       label: "Simple mode",
       values: TOGGLE_VALUES,
@@ -327,6 +346,7 @@ export const createSettingsItems = ({
     },
     fallbackModel,
   ];
+
   if (settings.simpleMode) {
     items.push(
       modelWhitelist,
@@ -338,6 +358,7 @@ export const createSettingsItems = ({
         true
       )
     );
+
     return items;
   }
 
@@ -560,17 +581,20 @@ export const createSettingsItems = ({
           onCancel: done,
           onSubmit: (value) => {
             let parsed: unknown;
+
             try {
               parsed = JSON.parse(value || "{}");
             } catch {
               return { error: "Enter a valid JSON object." };
             }
+
             if (!isValidAdvisorToolPolicies(parsed)) {
               return {
                 error:
                   "Use non-empty tool names with full, summary, or exclude values.",
               };
             }
+
             return { value: JSON.stringify(parsed) };
           },
           theme,
@@ -599,7 +623,16 @@ export const createSettingsItems = ({
       settings.outcomeLogging,
       false
     ),
-    ...jevItems(settings, theme, tui, jevSetupDeps, onJevSetup, afterJevSetup)
+    ...jevItems(
+      settings,
+      theme,
+      tui,
+      jevClassifierRegistry,
+      jevKeyDeps,
+      onJevFilter,
+      onJevProvider
+    )
   );
+
   return items;
 };

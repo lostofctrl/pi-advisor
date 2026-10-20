@@ -50,6 +50,7 @@ const makePi = (starts: (() => void)[]) =>
 
 const openSelector = (initial: any) => {
   const saved: any[] = [];
+
   const selector = new AdvisorSettingsSelector({
     effortLevels: ["Default (Model Default)", "low", "high"],
     initial: {
@@ -71,6 +72,7 @@ const openSelector = (initial: any) => {
     theme: selectorTheme,
     tui: { requestRender: () => {} },
   });
+
   return { saved, selector };
 };
 
@@ -84,6 +86,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       toolResultMaxBytes: 75_000,
       toolResultMaxLines: 3000,
     });
+
     for (const row of [
       "Context window",
       "Loop threshold",
@@ -94,6 +97,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     ]) {
       changeSetting(selector, row);
     }
+
     expect(saved.at(-1)).toMatchObject({
       contextMaxChars: 15_000,
       gitContextMaxChars: 50_000,
@@ -109,6 +113,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       contextMaxChars: 12_000,
       maxCallsPerSession: 7,
     });
+
     changeSetting(selector, "Context window");
     changeSetting(selector, "Max Advisor calls/session");
     expect(saved.at(-1)).toMatchObject({
@@ -122,6 +127,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       contextMaxChars: 10_000,
       simpleMode: false,
     });
+
     const before = plainScreen(selector);
     expect(before).toContain("→ Context window");
     expect(before).toContain("10k");
@@ -135,6 +141,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       contextMaxChars: 10_000,
       simpleMode: false,
     });
+
     changeSetting(selector, "Simple mode");
     expect(plainScreen(selector)).toMatch(SIMPLE_MODE_ON);
     expect(plainScreen(selector)).not.toContain("Plan gate");
@@ -149,6 +156,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
       alwaysOn: false,
       simpleMode: true,
     });
+
     const screen = plainScreen(selector);
     expect(screen).toContain("Context window");
     expect(screen).toContain("Simple mode");
@@ -157,11 +165,39 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     selector.dispose();
   });
 
+  test("toggles Advisor tool availability in Simple mode settings", () => {
+    const { saved, selector } = openSelector({
+      advisorToolsEnabled: true,
+      alwaysOn: true,
+      simpleMode: true,
+    });
+
+    const screen = plainScreen(selector);
+    expect(screen).toContain("Advisor tools");
+    expect(screen).toContain("Simple mode");
+    expect(screen).not.toContain("Plan gate");
+
+    focusSettingsRow(selector, "Advisor tools");
+    selector.handleInput(" ");
+    expect(saved.at(-1)).toMatchObject({
+      advisorToolsEnabled: false,
+      alwaysOn: false,
+    });
+    selector.handleInput(" ");
+    expect(saved.at(-1)).toMatchObject({
+      advisorToolsEnabled: true,
+      alwaysOn: false,
+    });
+    selector.dispose();
+  });
+
   test("treats a quoted decision inside a fenced example as illustrative", () => {
     const result = parseAutomaticDecision(
       "Decision: revise\n\nUse this format:\n\n```\nDecision: proceed\n```\n\nThen retry."
     );
+
     expect(result.ok).toBe(true);
+
     if (result.ok) {
       expect(result.decision).toBe("revise");
     }
@@ -171,7 +207,9 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     const result = parseAutomaticDecision(
       "Decision: revise\n\n```\nDecision: proceed\n```\n\nDecision: blocked"
     );
+
     expect(result.ok).toBe(false);
+
     if (!result.ok) {
       expect(result.category).toBe("contradictory-decision");
     }
@@ -187,10 +225,12 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     await withAgentDir({ advisorOutcomeLogging: true }, async (agentDir) => {
       const state = new AdvisorSessionState();
       const tools = new Map<string, any>();
+
       const outcomes: Promise<void>[] = [
         Promise.reject(new Error("disk full")),
         Promise.resolve(),
       ];
+
       const pi = mockPi({ tools });
       state.issueAdvice(
         "advice-1",
@@ -202,17 +242,20 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
         appendOutcome: (() => outcomes.shift() ?? Promise.resolve()) as any,
       });
       const recordOutcome = tools.get("record_advisor_outcome");
+
       const params = {
         adoption: "followed",
         adviceId: "advice-1",
         validationStatus: "passed",
       };
+
       const run = (callId: string) =>
         recordOutcome.execute(callId, params, undefined, undefined, {
           cwd: agentDir,
           hasUI: false,
           isProjectTrusted: () => false,
         });
+
       const first = await run("outcome-1");
       expect(first.details).toEqual({ recorded: false });
       expect(state.reserveAdvice("advice-1")).toBeDefined();
@@ -258,6 +301,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     const toolCall = events.get("tool_call");
     state.resetTask();
     state.block("still blocked");
+
     try {
       expect(
         toolCall(
@@ -295,6 +339,7 @@ describe("Advisor settings navigation and gate parsing regressions", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "pi-advisor-project-"));
     mkdirSync(join(projectDir, ".pi"), { recursive: true });
     const configPath = join(projectDir, ".pi", "advisor.json");
+
     const ctx = asExtensionContext({
       cwd: projectDir,
       hasUI: false,

@@ -33,6 +33,7 @@ const boundedLabel = (value: string) =>
 
 const labelFor = (kind: ScoutGroupKind, content: string) => {
   const preview = boundedLabel(content.replace(SPEAKER_PREFIX, ""));
+
   const prefix: Record<ScoutGroupKind, string> = {
     assistant: "Executor",
     compaction: "Compaction summary",
@@ -40,6 +41,7 @@ const labelFor = (kind: ScoutGroupKind, content: string) => {
     "tool-exchange": "Tool exchange",
     user: "User request",
   };
+
   return boundedLabel(`${prefix[kind]}: ${preview || "(no text)"}`);
 };
 
@@ -87,11 +89,13 @@ const createGroup = (
 const pendingAdvisorArguments = (part: RecordValue): RecordValue => {
   const value = isRecord(part.arguments) ? part.arguments : {};
   const allowed: RecordValue = {};
+
   for (const key of ["gitContext", "question"]) {
     if (key in value) {
       allowed[key] = value[key];
     }
   }
+
   return allowed;
 };
 
@@ -108,7 +112,9 @@ const pendingInvocationDisclosure = (
   if (!isRecord(entry.message)) {
     return disclosed;
   }
+
   const message: RecordValue = entry.message;
+
   const content = contentParts(message.content).map((part) => {
     if (
       !isRecord(part) ||
@@ -118,8 +124,10 @@ const pendingInvocationDisclosure = (
     ) {
       return part;
     }
+
     return { ...part, arguments: pendingAdvisorArguments(part) };
   });
+
   return conversationEntry(
     { ...entry, message: { ...message, content } },
     toolResultMaxLines,
@@ -161,6 +169,7 @@ const adjacentResultMismatch = (
   ) {
     return `Tool result at context entry ${index + 1} does not match its adjacent assistant group.`;
   }
+
   return undefined;
 };
 
@@ -177,20 +186,26 @@ const collectResults = (
 ): string | undefined => {
   for (const [callIndex, callId] of callIds.entries()) {
     const resultMatch = resultsByCall.get(callId)?.[0];
+
     if (!resultMatch) {
       missing.add(callId);
       continue;
     }
+
     if (resultMatch.index <= index) {
       return `Tool result at context entry ${resultMatch.index} precedes its assistant call.`;
     }
+
     const resultMessage = resultMatch.entry.message;
     const call = calls[callIndex];
     const expectedName = isString(call.name) ? call.name : "unknown";
+
     if (!isRecord(resultMessage) || resultMessage.toolName !== expectedName) {
       return `Tool result at context entry ${resultMatch.index} conflicts with call ${callId}.`;
     }
+
     consumedResultIndexes.add(resultMatch.index);
+
     const resultText = conversationEntry(
       resultMatch.entry,
       caps.toolResultMaxLines,
@@ -200,15 +215,18 @@ const collectResults = (
       true,
       caps.imageNonce
     );
+
     if (resultText) {
       resultParts.push(resultText);
     }
+
     resultEntryIds.push(
       isString(resultMatch.entry.id)
         ? resultMatch.entry.id
         : String(resultMatch.index)
     );
   }
+
   return undefined;
 };
 
@@ -224,17 +242,20 @@ const missingOutcome = (
   caps: DisclosureCaps
 ): ToolExchangeOutcome => {
   const { currentInvocationId } = caps;
+
   const pendingCurrentInvocation =
     currentInvocationId !== undefined &&
     missing.size === 1 &&
     missing.has(currentInvocationId) &&
     callIds.includes(currentInvocationId);
+
   if (!pendingCurrentInvocation) {
     return {
       bytes: byteLength([disclosed, ...resultParts].join("\n\n")),
       kind: "omitted",
     };
   }
+
   const pendingDisclosed = pendingInvocationDisclosure(
     entry,
     currentInvocationId,
@@ -245,6 +266,7 @@ const missingOutcome = (
     caps.imageNonce,
     disclosed
   );
+
   return {
     group: createGroup(
       index,
@@ -275,18 +297,22 @@ const toolExchangeGroup = (
 ): ToolExchangeOutcome => {
   const calls = toolCalls(message);
   const callIds = calls.map(toolCallId).filter(isString);
+
   const adjacentFailure = adjacentResultMismatch(
     immediate,
     index,
     callIds,
     indexed.callOwners
   );
+
   if (adjacentFailure) {
     return { kind: "invalid", message: adjacentFailure };
   }
+
   const missing = new Set<string>();
   const resultParts: string[] = [];
   const resultEntryIds: string[] = [];
+
   const matchFailure = collectResults(
     calls,
     callIds,
@@ -298,9 +324,11 @@ const toolExchangeGroup = (
     resultParts,
     resultEntryIds
   );
+
   if (matchFailure) {
     return { kind: "invalid", message: matchFailure };
   }
+
   if (missing.size > 0) {
     return missingOutcome(
       entry,
@@ -314,6 +342,7 @@ const toolExchangeGroup = (
       caps
     );
   }
+
   return {
     group: createGroup(
       index,
@@ -356,12 +385,14 @@ const toolResultOutcome = (
   if (consumedResultIndexes.has(index)) {
     return { kind: "skipped" };
   }
+
   if (ownerOf(message, callOwners)) {
     return {
       kind: "invalid",
       message: `Tool result at context entry ${index} precedes or conflicts with its retained call.`,
     };
   }
+
   // Retained results without their call are unavailable optional evidence
   // and are never offered to Scout.
   return { bytes: byteLength(disclosed), kind: "omitted" };
@@ -381,13 +412,16 @@ const groupForEntry = (
   caps: DisclosureCaps
 ): EntryOutcome => {
   const entryId = isString(entry.id) ? entry.id : String(index);
+
   if (entry.type !== "message" || !isRecord(entry.message)) {
     return {
       group: createGroup(index, [entryId], "compaction", disclosed, false),
       kind: "group",
     };
   }
+
   const { message } = entry;
+
   if (message.role === "user") {
     return {
       group: createGroup(
@@ -400,6 +434,7 @@ const groupForEntry = (
       kind: "group",
     };
   }
+
   if (message.role === "toolResult") {
     return toolResultOutcome(
       message,
@@ -409,15 +444,18 @@ const groupForEntry = (
       consumedResultIndexes
     );
   }
+
   if (message.role !== "assistant") {
     return { kind: "skipped" };
   }
+
   if (!hasCalls(message)) {
     return {
       group: createGroup(index, [entryId], "assistant", disclosed, false),
       kind: "group",
     };
   }
+
   return toolExchangeGroup(
     entry,
     message,
@@ -448,11 +486,14 @@ export const buildGroups = (
   const consumedResultIndexes = new Set<number>();
   let protocolOmittedBytes = 0;
   let protocolOmittedCount = 0;
+
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
+
     if (!isRecord(entry)) {
       continue;
     }
+
     const disclosed = conversationEntry(
       entry,
       caps.toolResultMaxLines,
@@ -462,11 +503,14 @@ export const buildGroups = (
       true,
       caps.imageNonce
     );
+
     if (!disclosed) {
       continue;
     }
+
     const next = entries[index + 1];
     const immediate = isRecord(next) ? next : undefined;
+
     const outcome = groupForEntry(
       entry,
       index,
@@ -476,9 +520,11 @@ export const buildGroups = (
       consumedResultIndexes,
       caps
     );
+
     if (outcome.kind === "invalid") {
       return invalid(outcome.message);
     }
+
     if (outcome.kind === "omitted") {
       protocolOmittedCount += 1;
       protocolOmittedBytes += outcome.bytes;
@@ -486,6 +532,7 @@ export const buildGroups = (
       groups.push(outcome.group);
     }
   }
+
   return {
     groups,
     ok: true,

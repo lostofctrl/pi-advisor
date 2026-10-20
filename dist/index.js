@@ -7,16 +7,13 @@ import {
   DEFAULT_MAX_BYTES as PI_DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES as PI_DEFAULT_MAX_LINES
 } from "@earendil-works/pi-coding-agent";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES
-} from "@earendil-works/pi-coding-agent";
 var DEFAULT_CONTEXT_MAX_CHARS = 15000;
 var MAX_CONTEXT_MAX_CHARS = Number.MAX_SAFE_INTEGER;
 var DEFAULT_ADVISOR_TOOL_RESULT_MAX_LINES = PI_DEFAULT_MAX_LINES;
 var DEFAULT_ADVISOR_TOOL_RESULT_MAX_BYTES = PI_DEFAULT_MAX_BYTES;
 var DEFAULT_ADVISOR_GIT_CONTEXT_MAX_CHARS = 20000;
 var DEFAULT_JEV_MODEL = "jev-latest";
+var JEV_API_KEY_CLASSIFIER = "jev-api-key";
 var DEFAULT_JEV_TIMEOUT_MS = 8000;
 var DEFAULT_SCOUT_TIMEOUT_MS = 30000;
 var MAX_SCOUT_TIMEOUT_MS = 2147483647;
@@ -32,7 +29,8 @@ var JEV_TRANSPORTS = [
   "auto",
   "typesafe",
   "openrouter",
-  "openai-decisions"
+  "openai-decisions",
+  "typesafe-compatible"
 ];
 var ADVISOR_TOOL_POLICIES = [
   "full",
@@ -68,6 +66,7 @@ var advisorMaxCallsPerSessionRef;
 var advisorModelWhitelistRef = [];
 var advisorSessionSummaryRef = false;
 var simpleModeRef = false;
+var advisorToolsEnabledRef = true;
 var alwaysOnRef = false;
 var advisorFailureModeRef = "block-session";
 var advisorHerdrIntegrationRef = true;
@@ -76,9 +75,13 @@ var advisorJevFilterSkipConfidenceRef = DEFAULT_JEV_FILTER_SKIP_CONFIDENCE;
 var advisorJevFilterNoulMarginRef = DEFAULT_JEV_FILTER_NOUL_MARGIN;
 var advisorJevFilterOverrideWindowRef = DEFAULT_JEV_FILTER_OVERRIDE_WINDOW;
 var advisorJevModelRef = DEFAULT_JEV_MODEL;
+var advisorJevClassifierRef;
+var advisorJevClassifierModeRef = "pi";
 var advisorJevTimeoutMsRef = DEFAULT_JEV_TIMEOUT_MS;
 var advisorJevDigestMaxCharsRef = DEFAULT_JEV_DIGEST_MAX_CHARS;
 var advisorJevPricePerMtokRef = DEFAULT_JEV_PRICE_PER_MTOK;
+var advisorJevBaseUrlRef;
+var advisorJevKeyProviderRef;
 var advisorJevTransportRef = DEFAULT_JEV_TRANSPORT;
 var advisorJevTurnGateEveryTurnsRef = DEFAULT_JEV_TURN_GATE_EVERY_TURNS;
 var advisorJevTurnGateNoulThresholdRef = DEFAULT_JEV_TURN_GATE_NOUL_THRESHOLD;
@@ -156,7 +159,10 @@ var setAdvisorMaxCallsPerSessionRef = (value) => {
 };
 var setAdvisorModelWhitelistRef = (models) => {
   advisorModelWhitelistRef = [
-    ...new Set(models.map((model) => model.trim()).filter(Boolean))
+    ...new Set(models.flatMap((model) => {
+      const trimmed = model.trim();
+      return trimmed ? [trimmed] : [];
+    }))
   ];
 };
 var setAdvisorSessionSummaryRef = (enabled) => {
@@ -164,6 +170,9 @@ var setAdvisorSessionSummaryRef = (enabled) => {
 };
 var setSimpleModeRef = (enabled) => {
   simpleModeRef = enabled;
+};
+var setAdvisorToolsEnabledRef = (enabled) => {
+  advisorToolsEnabledRef = enabled;
 };
 var setAlwaysOnRef = (enabled) => {
   alwaysOnRef = enabled;
@@ -174,6 +183,10 @@ var setAdvisorFailureModeRef = (value) => {
 };
 var setAdvisorHerdrIntegrationRef = (enabled) => {
   advisorHerdrIntegrationRef = enabled;
+};
+var setAdvisorJevClassifierRef = (ref) => {
+  advisorJevClassifierRef = ref?.trim() || undefined;
+  advisorJevClassifierModeRef = advisorJevClassifierRef === "jev-api-key" ? "api-key" : "pi";
 };
 var setAdvisorJevFilterEnabledRef = (enabled) => {
   advisorJevFilterEnabledRef = enabled;
@@ -198,6 +211,12 @@ var setAdvisorJevDigestMaxCharsRef = (value) => {
 };
 var setAdvisorJevPricePerMtokRef = (value) => {
   advisorJevPricePerMtokRef = value;
+};
+var setAdvisorJevBaseUrlRef = (value) => {
+  advisorJevBaseUrlRef = value?.trim() || undefined;
+};
+var setAdvisorJevKeyProviderRef = (value) => {
+  advisorJevKeyProviderRef = value?.trim() || undefined;
 };
 var setAdvisorJevTransportRef = (value) => {
   advisorJevTransportRef = value;
@@ -248,6 +267,7 @@ var setShowUsageFooterRef = (enabled) => {
   showUsageFooterRef = enabled;
 };
 var getAdvisorSettings = () => ({
+  advisorToolsEnabled: advisorToolsEnabledRef,
   agentsMdContext: advisorAgentsMdContextRef,
   alwaysOn: alwaysOnRef,
   autoLoopGate: advisorAutoLoopGateRef,
@@ -264,11 +284,14 @@ var getAdvisorSettings = () => ({
   gitContext: advisorGitContextRef,
   gitContextMaxChars: advisorGitContextMaxCharsRef,
   herdrIntegration: advisorHerdrIntegrationRef,
+  jevBaseUrl: advisorJevBaseUrlRef,
+  jevClassifier: advisorJevClassifierRef,
   jevDigestMaxChars: advisorJevDigestMaxCharsRef,
   jevFilterEnabled: advisorJevFilterEnabledRef,
   jevFilterNoulMargin: advisorJevFilterNoulMarginRef,
   jevFilterOverrideWindow: advisorJevFilterOverrideWindowRef,
   jevFilterSkipConfidence: advisorJevFilterSkipConfidenceRef,
+  jevKeyProvider: advisorJevKeyProviderRef,
   jevModel: advisorJevModelRef,
   jevPricePerMtok: advisorJevPricePerMtokRef,
   jevTimeoutMs: advisorJevTimeoutMsRef,
@@ -433,6 +456,56 @@ ${patch}` : "Patch: (no tracked-file content changes)");
   }
 };
 
+// src/jev/base-url.ts
+var JEV_SYSTEM_ONE_PATH = "/v1/systemone";
+var VERSION_PATH = "/v1";
+var IPV4_LOOPBACK_HOST = /^127(?:\.\d{1,3}){3}$/u;
+var isLoopbackHost = (hostname) => {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "[::1]" || host === "::1" || IPV4_LOOPBACK_HOST.test(host);
+};
+var stripContractPath = (pathname) => {
+  let path = pathname.replace(/\/+$/u, "");
+  if (path.endsWith(JEV_SYSTEM_ONE_PATH)) {
+    path = path.slice(0, -JEV_SYSTEM_ONE_PATH.length);
+  }
+  path = path.replace(/\/+$/u, "");
+  if (path.endsWith(VERSION_PATH)) {
+    path = path.slice(0, -VERSION_PATH.length);
+  }
+  return path.replace(/\/+$/u, "");
+};
+var normalizeJevBaseUrl = (input) => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { error: "Enter the Base URL of a System One–compatible endpoint." };
+  }
+  let parsed;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { error: "That is not a valid URL." };
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return { error: "The Base URL must use https." };
+  }
+  if (parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname)) {
+    return {
+      error: "Plain http is allowed only for localhost, ::1, and 127.x addresses."
+    };
+  }
+  if (parsed.username || parsed.password) {
+    return { error: "Remove the credentials embedded in the URL." };
+  }
+  if (parsed.search) {
+    return { error: "Remove the query string from the Base URL." };
+  }
+  if (parsed.hash) {
+    return { error: "Remove the fragment from the Base URL." };
+  }
+  return { baseUrl: `${parsed.origin}${stripContractPath(parsed.pathname)}` };
+};
+
 // src/config/schema.ts
 var configuredModelRef = (value) => value?.trim() || undefined;
 var isNonEmptyModel = (model) => typeof model === "string" && model.trim().length > 0;
@@ -460,6 +533,8 @@ var isValidJevSkipConfidence = (value) => typeof value === "number" && Number.is
 var isValidJevNoulMargin = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 0.5;
 var JEV_TRANSPORT_NAMES = new Set(JEV_TRANSPORTS);
 var isValidJevTransport = (value) => isString(value) && JEV_TRANSPORT_NAMES.has(value);
+var isValidJevBaseUrl = (value) => isString(value) && (value.trim() === "" || normalizeJevBaseUrl(value).baseUrl !== undefined);
+var isValidJevKeyProvider = (value) => isString(value) && (value.trim() === "" || !/\s/u.test(value.trim()));
 var CONFIG_SCHEMA = {
   advisor: {
     accepted: "a provider/model string",
@@ -547,6 +622,20 @@ var CONFIG_SCHEMA = {
     persisted: true,
     type: "boolean"
   },
+  advisorJevBaseUrl: {
+    accepted: "a System One–compatible Base URL over https, or over http on a loopback host",
+    current: () => advisorJevBaseUrlRef,
+    persisted: true,
+    type: "string",
+    validate: isValidJevBaseUrl
+  },
+  advisorJevClassifier: {
+    accepted: "a concrete provider/model classifier reference or jev-api-key",
+    current: () => advisorJevClassifierRef,
+    persisted: true,
+    type: "string",
+    validate: (value) => isString(value) && (value === "jev-api-key" || /^[^/]+\/.+$/u.test(value.trim()))
+  },
   advisorJevDigestMaxChars: {
     accepted: "a non-negative safe integer",
     current: () => advisorJevDigestMaxCharsRef,
@@ -580,6 +669,13 @@ var CONFIG_SCHEMA = {
     persisted: true,
     type: "number",
     validate: isValidJevSkipConfidence
+  },
+  advisorJevKeyProvider: {
+    accepted: "a Pi provider id whose stored login supplies the endpoint key",
+    current: () => advisorJevKeyProviderRef,
+    persisted: true,
+    type: "string",
+    validate: isValidJevKeyProvider
   },
   advisorJevModel: {
     accepted: "a non-empty string",
@@ -701,6 +797,12 @@ var CONFIG_SCHEMA = {
     type: "number",
     validate: isValidToolResultMaxLines
   },
+  advisorToolsEnabled: {
+    accepted: "true or false",
+    current: () => advisorToolsEnabledRef,
+    persisted: true,
+    type: "boolean"
+  },
   advisorTrackedFileContent: {
     accepted: "true or false",
     current: () => advisorTrackedFileContentRef,
@@ -771,55 +873,25 @@ var SCHEMA_BY_KEY = CONFIG_SCHEMA;
 // src/config/validation.ts
 var CONFIG_KEYS = new Set(configKeys);
 var keysOfType = (type) => configKeys.filter((key) => SCHEMA_BY_KEY[key].type === type);
-var BOOLEAN_CONFIG_KEYS = keysOfType("boolean");
-var STRING_CONFIG_KEYS = keysOfType("string");
 var invalidConfigValue = (path, key, accepted) => {
   throw new TypeError(`Invalid advisor configuration at ${path}, key ${JSON.stringify(key)}: expected ${accepted}.`);
 };
 var unknownConfigKeys = (config) => Object.keys(config).filter((key) => !CONFIG_KEYS.has(key));
-var validateStringValues = (config, path) => {
-  for (const key of STRING_CONFIG_KEYS) {
-    if (config[key] !== undefined && !isString(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
+var validateValues = (config, path, type) => {
+  for (const key of keysOfType(type)) {
+    const value = config[key];
+    if (value === undefined) {
+      continue;
     }
-  }
-};
-var validateBooleanValues = (config, path) => {
-  for (const key of BOOLEAN_CONFIG_KEYS) {
-    if (config[key] !== undefined && !isBoolean(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
+    const schema = SCHEMA_BY_KEY[key];
+    if (type === "string" || type === "boolean") {
+      const matchesType = type === "string" ? isString(value) : isBoolean(value);
+      if (!matchesType) {
+        invalidConfigValue(path, key, schema.accepted);
+      }
     }
-  }
-};
-var validateNumericValues = (config, path) => {
-  for (const key of keysOfType("number")) {
-    const isValid = SCHEMA_BY_KEY[key].validate;
-    if (config[key] !== undefined && isValid !== undefined && !isValid(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
-    }
-  }
-};
-var validateArrayValues = (config, path) => {
-  for (const key of keysOfType("array")) {
-    const isValid = SCHEMA_BY_KEY[key].validate;
-    if (config[key] !== undefined && isValid !== undefined && !isValid(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
-    }
-  }
-};
-var validateEnumValues = (config, path) => {
-  for (const key of keysOfType("enum")) {
-    const isValid = SCHEMA_BY_KEY[key].validate;
-    if (config[key] !== undefined && isValid !== undefined && !isValid(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
-    }
-  }
-};
-var validateObjectValues = (config, path) => {
-  for (const key of keysOfType("object")) {
-    const isValid = SCHEMA_BY_KEY[key].validate;
-    if (config[key] !== undefined && isValid !== undefined && !isValid(config[key])) {
-      invalidConfigValue(path, key, SCHEMA_BY_KEY[key].accepted);
+    if (schema.validate && !schema.validate(value)) {
+      invalidConfigValue(path, key, schema.accepted);
     }
   }
 };
@@ -827,12 +899,12 @@ var validateConfig = (value, path = "advisor.json") => {
   if (!isRecord(value)) {
     throw new TypeError(`Invalid advisor configuration at ${path}: expected a JSON object.`);
   }
-  validateStringValues(value, path);
-  validateBooleanValues(value, path);
-  validateNumericValues(value, path);
-  validateObjectValues(value, path);
-  validateArrayValues(value, path);
-  validateEnumValues(value, path);
+  validateValues(value, path, "string");
+  validateValues(value, path, "boolean");
+  validateValues(value, path, "number");
+  validateValues(value, path, "object");
+  validateValues(value, path, "array");
+  validateValues(value, path, "enum");
   return true;
 };
 
@@ -894,10 +966,14 @@ var resetDefaults = () => {
   setAdvisorModelWhitelistRef([]);
   setAdvisorSessionSummaryRef(false);
   setSimpleModeRef(false);
+  setAdvisorToolsEnabledRef(true);
   setAlwaysOnRef(false);
   setAdvisorFailureModeRef("block-session");
   setAdvisorHerdrIntegrationRef(true);
   setAdvisorJevModelRef(DEFAULT_JEV_MODEL);
+  setAdvisorJevClassifierRef(undefined);
+  setAdvisorJevBaseUrlRef(undefined);
+  setAdvisorJevKeyProviderRef(undefined);
   setAdvisorJevFilterEnabledRef(false);
   setAdvisorJevFilterSkipConfidenceRef(DEFAULT_JEV_FILTER_SKIP_CONFIDENCE);
   setAdvisorJevFilterNoulMarginRef(DEFAULT_JEV_FILTER_NOUL_MARGIN);
@@ -958,6 +1034,7 @@ var applyConfig = (config) => {
   applyOptionalConfig(config, "showUsageDetails", setShowUsageDetailsRef);
   applyOptionalConfig(config, "showUsageFooter", setShowUsageFooterRef);
   applyOptionalConfig(config, "simpleMode", setSimpleModeRef);
+  applyOptionalConfig(config, "advisorToolsEnabled", setAdvisorToolsEnabledRef);
   applyOptionalConfig(config, "alwaysOn", setAlwaysOnRef);
   applyOptionalConfig(config, "gateFailureMode", setAdvisorFailureModeRef);
   applyOptionalConfig(config, "advisorHerdrIntegration", setAdvisorHerdrIntegrationRef);
@@ -966,6 +1043,9 @@ var applyConfig = (config) => {
   applyOptionalConfig(config, "advisorJevFilterNoulMargin", setAdvisorJevFilterNoulMarginRef);
   applyOptionalConfig(config, "advisorJevFilterOverrideWindow", setAdvisorJevFilterOverrideWindowRef);
   applyNonEmptyStringConfig(config.advisorJevModel, setAdvisorJevModelRef);
+  applyOptionalConfig(config, "advisorJevClassifier", setAdvisorJevClassifierRef);
+  applyOptionalConfig(config, "advisorJevBaseUrl", setAdvisorJevBaseUrlRef);
+  applyOptionalConfig(config, "advisorJevKeyProvider", setAdvisorJevKeyProviderRef);
   applyOptionalConfig(config, "advisorJevTimeoutMs", setAdvisorJevTimeoutMsRef);
   applyOptionalConfig(config, "advisorJevDigestMaxChars", setAdvisorJevDigestMaxCharsRef);
   applyOptionalConfig(config, "advisorJevPricePerMtok", setAdvisorJevPricePerMtokRef);
@@ -1011,14 +1091,6 @@ var resolveAdvisorConfigPath = () => {
 var currentConfigState = () => Object.fromEntries(SAVED_CONFIG_KEYS.map((key) => [key, CONFIG_SCHEMA[key].current()]));
 var sameConfigValue = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 var RESERVED_ADVISOR_JSON_KEYS = new Set(["typesafe_api_key"]);
-var readExistingConfig = (path) => {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-};
 var ensureConfigDirectory = (path) => {
   mkdirSync(dirname(path), { recursive: true });
 };
@@ -1073,9 +1145,11 @@ var readConfig = (path) => {
 };
 var configCache = new Map;
 var warnedUnknownConfigIdentities = new Set;
+var warnedFilterWithoutClassifierIdentities = new Set;
 var resetConfigCache = () => {
   configCache.clear();
   warnedUnknownConfigIdentities.clear();
+  warnedFilterWithoutClassifierIdentities.clear();
 };
 var configIdentity = (path) => {
   try {
@@ -1102,8 +1176,12 @@ var loadConfig = (_ctx) => {
   setPersistedModelRefs(configuredModelRef(globalConfig?.advisor), configuredModelRef(globalConfig?.executor));
   if (globalConfig) {
     applyConfig(globalConfig);
-    const unknownKeys = unknownConfigKeys(globalConfig).filter((key) => !RESERVED_ADVISOR_JSON_KEYS.has(key));
     const warningIdentity = `${global}:${configIdentity(global)}`;
+    if (advisorJevFilterEnabledRef && !advisorJevClassifierRef && _ctx.hasUI && !warnedFilterWithoutClassifierIdentities.has(warningIdentity)) {
+      warnedFilterWithoutClassifierIdentities.add(warningIdentity);
+      _ctx.ui.notify("The Jev consultation filter is enabled but no Jev classifier is selected; consultations are not screened until you pick one in /advisor-settings.", "warning");
+    }
+    const unknownKeys = unknownConfigKeys(globalConfig).filter((key) => !RESERVED_ADVISOR_JSON_KEYS.has(key));
     if (unknownKeys.length > 0 && _ctx.hasUI && !warnedUnknownConfigIdentities.has(warningIdentity)) {
       _ctx.ui.notify(`Advisor configuration at ${global} contains unrecognized key(s) ${unknownKeys.map((key) => JSON.stringify(key)).join(", ")}. They were preserved but ignored; check for typos or upgrade pi-advisor.`, "warning");
       warnedUnknownConfigIdentities.add(warningIdentity);
@@ -1139,6 +1217,7 @@ var saveConfig = (_ctx, options = {}) => {
   }
   loadedConfigState = nextLoadedState;
   loadedConfigPath = path;
+  setPersistedModelRefs(configuredModelRef(nextLoadedState.advisor), configuredModelRef(nextLoadedState.executor));
   return path;
 };
 var saveGlobalOutcomeLogging = (enabled) => {
@@ -1297,8 +1376,8 @@ var getExplicitModelError = (ctx, ref, label, overridden, availableRefs) => {
   }
 };
 var planActivationModels = (ctx, executor, advisor, pendingExecutorRef, persisted, executorOverride, advisorOverride, availableRefs) => {
-  const pendingExecutor = !executorOverride && pendingExecutorRef && isSelectableModel(ctx, pendingExecutorRef, availableRefs) ? pendingExecutorRef : undefined;
-  const executorConfigured = executorOverride || Boolean(pendingExecutor) || Boolean(persisted.executor && isSelectableModel(ctx, executor, availableRefs));
+  const pendingExecutor = !executorOverride && persisted.executor && pendingExecutorRef && isSelectableModel(ctx, pendingExecutorRef, availableRefs) ? pendingExecutorRef : undefined;
+  const executorConfigured = executorOverride || Boolean(pendingExecutor) || !persisted.executor || isSelectableModel(ctx, executor, availableRefs);
   const advisorConfigured = advisorOverride || Boolean(persisted.advisor && isSelectableModel(ctx, advisor, availableRefs));
   return {
     pendingExecutor,
@@ -1506,6 +1585,7 @@ class SearchableModelSelector extends ModelSelectorAdapter {
 
 // src/ui/types.ts
 var FALLBACK_ADVISOR_MODEL_DISABLED = "Disabled (no fallback)";
+var EXECUTOR_FOLLOWS_SESSION_MODEL = "Current session model (no override)";
 
 // src/commands/model-picker.ts
 var selectAdvisorModels = async (ctx, options) => {
@@ -1529,8 +1609,8 @@ var selectAdvisorModels = async (ctx, options) => {
   } = options;
   if (options.selectExecutor) {
     const selectedExecutor = await ctx.ui.custom((tui, theme, keybindings, done) => new SearchableModelSelector({
-      allOptions,
-      currentOption: executor || undefined,
+      allOptions: [EXECUTOR_FOLLOWS_SESSION_MODEL, ...allOptions],
+      currentOption: executor || EXECUTOR_FOLLOWS_SESSION_MODEL,
       keybindings,
       onCancel: () => done(undefined),
       onSelect: done,
@@ -1545,7 +1625,7 @@ var selectAdvisorModels = async (ctx, options) => {
     if (!selectedExecutorEffort) {
       return;
     }
-    executor = selectedExecutor;
+    executor = selectedExecutor === EXECUTOR_FOLLOWS_SESSION_MODEL ? "" : selectedExecutor;
     executorEffort = selectedEffort(selectedExecutorEffort);
   }
   if (options.selectAdvisor) {
@@ -1589,14 +1669,14 @@ var selectAdvisorModels = async (ctx, options) => {
     return;
   }
   advisorFallbackModel = selectedFallback === FALLBACK_ADVISOR_MODEL_DISABLED ? undefined : selectedFallback;
-  if (!(advisor && executor)) {
+  if (!advisor) {
     return;
   }
   return {
     advisor,
     advisorEffort,
     advisorFallbackModel,
-    executor,
+    executor: executor ?? "",
     executorEffort
   };
 };
@@ -1658,6 +1738,109 @@ var safeEmitBlocked = (active, label = "Advisor blocked") => {
 };
 var isControlCharacter = (character) => character <= "\x1F" || character === "";
 var cleanNotification = (value, max) => [...redactSecrets(value)].map((character) => isControlCharacter(character) ? " " : character).join("").replaceAll(/\s+/gu, " ").trim().slice(0, max);
+var FIRST_ATTEMPT_TIMEOUT_MS = 500;
+var RETRY_ATTEMPT_TIMEOUT_MS = 1500;
+var MAX_PENDING_NOTIFICATIONS = 16;
+var reportQueues = new Map;
+var isMetadataRequest = (request) => request.method === "pane.report_metadata";
+var reportQueueKey = (request) => isMetadataRequest(request) ? request.params.source : NOTIFICATION_SOURCE;
+var sendRequestAttempt = (endpoint, request, timeoutMs) => {
+  const deferred = Promise.withResolvers();
+  let settled = false;
+  let wrote = false;
+  let timeout;
+  let socket;
+  const finish = (responded) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    socket?.destroy();
+    deferred.resolve({ responded, wrote });
+  };
+  try {
+    socket = net.createConnection(endpoint);
+    socket.once("connect", () => {
+      wrote = true;
+      try {
+        socket?.write(`${JSON.stringify(request)}
+`);
+      } catch {
+        finish(false);
+      }
+    });
+    socket.once("data", () => finish(true));
+    socket.once("end", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.once("close", () => finish(false));
+    timeout = setTimeout(() => finish(false), timeoutMs);
+    timeout.unref?.();
+  } catch {
+    finish(false);
+  }
+  return deferred.promise;
+};
+var sendQueuedReport = async ({ endpoint, request }) => {
+  const first = await sendRequestAttempt(endpoint, request, FIRST_ATTEMPT_TIMEOUT_MS);
+  if (first.responded) {
+    return;
+  }
+  if (!isMetadataRequest(request) && first.wrote) {
+    return;
+  }
+  await sendRequestAttempt(endpoint, request, RETRY_ATTEMPT_TIMEOUT_MS);
+};
+var drainReportQueue = async (key, queue) => {
+  if (queue.active) {
+    return;
+  }
+  queue.active = true;
+  try {
+    while (queue.reports.length > 0) {
+      const report = queue.reports.shift();
+      if (report) {
+        try {
+          await sendQueuedReport(report);
+        } catch {
+          continue;
+        }
+      }
+    }
+  } finally {
+    queue.active = false;
+    if (queue.reports.length === 0) {
+      reportQueues.delete(key);
+    } else {
+      drainReportQueue(key, queue);
+    }
+  }
+};
+var enqueueReport = (report) => {
+  const key = reportQueueKey(report.request);
+  let queue = reportQueues.get(key);
+  if (!queue) {
+    queue = { active: false, reports: [] };
+    reportQueues.set(key, queue);
+  }
+  if (isMetadataRequest(report.request)) {
+    if (queue.active) {
+      queue.reports = [report];
+    } else {
+      queue.reports.push(report);
+    }
+  } else {
+    if (queue.reports.length >= MAX_PENDING_NOTIFICATIONS) {
+      return;
+    }
+    queue.reports.push(report);
+  }
+  if (!queue.active) {
+    drainReportQueue(key, queue);
+  }
+};
 var sendToHerdr = (request) => {
   if (process.env.HERDR_ENV !== "1") {
     return;
@@ -1668,14 +1851,7 @@ var sendToHerdr = (request) => {
     return;
   }
   const endpoint = process.platform === "win32" ? `\\\\.\\pipe\\${socketPath}` : socketPath;
-  const socket = net.createConnection(endpoint);
-  const timeout = setTimeout(() => socket.destroy(), 500);
-  timeout.unref?.();
-  socket.once("connect", () => socket.write(`${JSON.stringify(request)}
-`));
-  socket.once("data", () => socket.destroy());
-  socket.once("error", () => socket.destroy());
-  socket.once("close", () => clearTimeout(timeout));
+  enqueueReport({ endpoint, request });
 };
 var createHerdrNotificationRequest = (title, body) => ({
   id: `${NOTIFICATION_SOURCE}:${nextSequence()}`,
@@ -1694,8 +1870,8 @@ class HerdrAdvisorBlock {
   emitBlocked;
   report;
   enabled;
-  constructor(report = sendToHerdr, enabled = () => true, emitBlocked2 = safeEmitBlocked) {
-    this.emitBlocked = emitBlocked2;
+  constructor(report = sendToHerdr, enabled = () => true, emitBlocked = safeEmitBlocked) {
+    this.emitBlocked = emitBlocked;
     this.report = report;
     this.enabled = enabled;
   }
@@ -2814,8 +2990,8 @@ var toolResultEntry = (message, toolResultMaxLines, toolResultMaxBytes, policies
     return `[Tool Result for ${toolName}] (excluded by Advisor tool policy)`;
   }
   if (policy === "summary") {
-    const capped2 = capToolResult(source, toolResultMaxLines, toolResultMaxBytes);
-    return `[Tool Result for ${toolName}] (output omitted by Advisor tool policy: summary; status: ${status}; ${capped2.totalLines} lines, ${capped2.totalBytes} bytes; source output was${capped2.truncated ? "" : " not"} truncated)`;
+    const capped = capToolResult(source, toolResultMaxLines, toolResultMaxBytes);
+    return `[Tool Result for ${toolName}] (output omitted by Advisor tool policy: summary; status: ${status}; ${capped.totalLines} lines, ${capped.totalBytes} bytes; source output was${capped.truncated ? "" : " not"} truncated)`;
   }
   const disclosed = redact ? redactSecrets(source) : source;
   const capped = capToolResult(disclosed, toolResultMaxLines, toolResultMaxBytes);
@@ -2857,17 +3033,17 @@ var selectRecentEntries = (entries, maxChars) => {
   }
   const newestTruncated = "[Newest entry truncated]";
   if (entries.length === 1) {
-    const prefix2 = `${newestTruncated}${separator}`;
-    return `${prefix2}${entries[0].slice(0, Math.max(0, maxChars - prefix2.length))}`.slice(0, maxChars);
+    const prefix = `${newestTruncated}${separator}`;
+    return `${prefix}${entries[0].slice(0, Math.max(0, maxChars - prefix.length))}`.slice(0, maxChars);
   }
   const selected = [];
   let selectedLength = 0;
   for (let index = entries.length - 1;index >= 0; index -= 1) {
     const entry = entries[index];
     const candidateCount = selected.length + 1;
-    const omitted2 = entries.length - candidateCount;
+    const omitted = entries.length - candidateCount;
     const candidateLength = selectedLength + entry.length + (selected.length > 0 ? separator.length : 0);
-    if (omissionMarker(omitted2).length + separator.length + candidateLength > maxChars) {
+    if (omissionMarker(omitted).length + separator.length + candidateLength > maxChars) {
       break;
     }
     selected.unshift(entry);
@@ -3346,6 +3522,51 @@ var completeUsageSnapshot = (usage) => {
   }
   return { snapshot, usage };
 };
+var cleanUsage = (usage) => {
+  const { cost } = usage;
+  const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+  return {
+    cacheRead: usage.cacheRead,
+    cacheWrite: usage.cacheWrite,
+    cost: {
+      cacheRead: cost.cacheRead,
+      cacheWrite: cost.cacheWrite,
+      input: cost.input,
+      output: cost.output,
+      total: cost.total
+    },
+    input: usage.input,
+    output: usage.output,
+    totalTokens
+  };
+};
+var combineAdvisorAndClassifierUsage = (advisor, classifier) => {
+  if (!(advisor || classifier)) {
+    return;
+  }
+  const left = advisor ? cleanUsage(advisor) : undefined;
+  const right = classifier ? cleanUsage(classifier) : undefined;
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return {
+    cacheRead: left.cacheRead + right.cacheRead,
+    cacheWrite: left.cacheWrite + right.cacheWrite,
+    cost: {
+      cacheRead: left.cost.cacheRead + right.cost.cacheRead,
+      cacheWrite: left.cost.cacheWrite + right.cost.cacheWrite,
+      input: left.cost.input + right.cost.input,
+      output: left.cost.output,
+      total: left.cost.total + right.cost.input + right.cost.cacheRead + right.cost.cacheWrite
+    },
+    input: left.input + right.input,
+    output: left.output + right.output,
+    totalTokens: left.totalTokens + right.totalTokens
+  };
+};
 var advisorUsageForPi = (usage) => {
   const complete = completeUsageSnapshot(usage);
   if (!complete) {
@@ -3357,8 +3578,6 @@ var advisorUsageForPi = (usage) => {
   const output = snapshot.output ?? 0;
   const cacheRead = snapshot.cacheRead ?? 0;
   const cacheWrite = snapshot.cacheWrite ?? 0;
-  const cacheWrite1h = finite(complete.usage.cacheWrite1h);
-  const reasoning = finite(complete.usage.reasoning);
   const piUsage = {
     cacheRead,
     cacheWrite,
@@ -3373,6 +3592,8 @@ var advisorUsageForPi = (usage) => {
     output,
     totalTokens: snapshot.totalTokens ?? input + output + cacheRead + cacheWrite
   };
+  const cacheWrite1h = finite(complete.usage.cacheWrite1h);
+  const reasoning = finite(complete.usage.reasoning);
   if (cacheWrite1h !== undefined) {
     piUsage.cacheWrite1h = cacheWrite1h;
   }
@@ -3418,17 +3639,16 @@ var formatTokenCount = (value) => {
   }
   return `${Math.round(value / 1e6)}M`;
 };
-var formatTokens = formatTokenCount;
 var formatCost = (value) => `$${value.toFixed(4)}`;
 var formatUsageFields = (usage) => {
   const tokens = [
-    usage.input === undefined ? undefined : `↑${formatTokens(usage.input)}`,
-    usage.output === undefined ? undefined : `↓${formatTokens(usage.output)}`,
-    usage.cacheRead === undefined ? undefined : `cr:${formatTokens(usage.cacheRead)}`,
-    usage.cacheWrite === undefined ? undefined : `cw:${formatTokens(usage.cacheWrite)}`
+    usage.input === undefined ? undefined : `↑${formatTokenCount(usage.input)}`,
+    usage.output === undefined ? undefined : `↓${formatTokenCount(usage.output)}`,
+    usage.cacheRead === undefined ? undefined : `cr:${formatTokenCount(usage.cacheRead)}`,
+    usage.cacheWrite === undefined ? undefined : `cw:${formatTokenCount(usage.cacheWrite)}`
   ].filter((value) => value !== undefined);
   if (tokens.length === 0 && usage.totalTokens !== undefined) {
-    tokens.push(`tokens:${formatTokens(usage.totalTokens)}`);
+    tokens.push(`tokens:${formatTokenCount(usage.totalTokens)}`);
   }
   if (usage.cost !== undefined) {
     tokens.push(formatCost(usage.cost));
@@ -3442,18 +3662,13 @@ var formatAdvisorUsage = (usage) => {
 var formatAdvisorUsageTotals = (totals) => {
   const usage = formatUsageFields(totals);
   const missing = totals.calls - totals.knownCalls;
-  const parts = [
-    usage,
-    missing > 0 ? `${missing} without usage data` : undefined
-  ];
-  return parts.filter((value) => value !== undefined).join(" · ") || "unavailable";
+  return [usage, missing > 0 ? `${missing} without usage data` : undefined].filter((value) => value !== undefined).join(" · ") || "unavailable";
 };
 var formatAdvisorUsageStatus = (totals) => {
   if (totals.calls === 0) {
     return;
   }
-  const label = `Advisor: ${totals.calls} call${totals.calls === 1 ? "" : "s"}`;
-  return `${label} · ${formatAdvisorUsageTotals(totals)}`;
+  return `Advisor: ${totals.calls} call${totals.calls === 1 ? "" : "s"} · ${formatAdvisorUsageTotals(totals)}`;
 };
 
 // src/scout.ts
@@ -3618,15 +3833,15 @@ var runAdvisorScout = async (ctx, manifest, parentSignal, onEvent, timeoutMs = a
     return { cancelled: true, ok: false };
   };
   const fallback = (category, message, usage) => {
-    const outcome2 = {
+    const outcome = {
       category,
       message,
       metrics: usage === undefined ? baseMetrics(manifest, startedAt) : { ...baseMetrics(manifest, startedAt), usage },
       model: effectiveExecutorRef(ctx),
       ok: false
     };
-    publish({ outcome: outcome2, type: "fallback" });
-    return outcome2;
+    publish({ outcome, type: "fallback" });
+    return outcome;
   };
   if (parentSignal?.aborted) {
     return cancelled();
@@ -3747,12 +3962,12 @@ ${sources.join(`
 `)}
 </project_rules>`;
 };
-var advisorMessageText = (conversation, question, changes, draft, preferences, untracked2, tracked2, projectRules) => {
+var advisorMessageText = (conversation, question, changes, draft, preferences, untracked, tracked, projectRules) => {
   const safeConversation = escapeRepositoryText(conversation);
   const safeDraft = draft ? escapeRepositoryText(draft) : undefined;
   const safePreferences = preferences ? escapeRepositoryText(preferences) : undefined;
-  const safeUntracked = (untracked2 ?? []).map(escapeRepositoryText);
-  const safeTracked = (tracked2 ?? []).map(escapeRepositoryText);
+  const safeUntracked = (untracked ?? []).map(escapeRepositoryText);
+  const safeTracked = (tracked ?? []).map(escapeRepositoryText);
   const projectRulesText = projectRulesBlock(projectRules);
   const text = `${safeConversation ? `<conversation>
 ${safeConversation}
@@ -3868,8 +4083,8 @@ var assembleConsultationContext = async (options) => {
   const preferences = await readProjectPreferences(ctx, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef);
   const projectRules = advisorAgentsMdContextRef ? await readProjectRules(ctx, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef) : undefined;
   const draftText = options.draft ? redactAndCapText(options.draft, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef) : undefined;
-  const untracked2 = await readUntrackedFiles(ctx.cwd, options.includeUntracked ?? [], advisorUntrackedContentRef, advisorRedactSecretsRef);
-  const tracked2 = await readTrackedFiles(ctx.cwd, options.includeTracked ?? [], advisorTrackedFileContentRef, advisorRedactSecretsRef, Math.max(0, ATTACHMENTS_TOTAL_MAX_BYTES - untracked2.reduce((sum, item) => sum + item.bytes, 0)));
+  const untracked = await readUntrackedFiles(ctx.cwd, options.includeUntracked ?? [], advisorUntrackedContentRef, advisorRedactSecretsRef);
+  const tracked = await readTrackedFiles(ctx.cwd, options.includeTracked ?? [], advisorTrackedFileContentRef, advisorRedactSecretsRef, Math.max(0, ATTACHMENTS_TOTAL_MAX_BYTES - untracked.reduce((sum, item) => sum + item.bytes, 0)));
   const supportsImages = options.supportsImages ?? false;
   const untrackedImages = await readImageFiles(ctx.cwd, options.includeUntracked ?? [], supportsImages && advisorUntrackedContentRef, "untracked", ADVISOR_IMAGES_TOTAL_MAX_BYTES, ADVISOR_IMAGES_MAX_COUNT);
   const trackedImages = await readImageFiles(ctx.cwd, options.includeTracked ?? [], supportsImages && advisorTrackedFileContentRef, "tracked", ADVISOR_IMAGES_TOTAL_MAX_BYTES - untrackedImages.images.reduce((sum, item) => sum + item.bytes, 0), ADVISOR_IMAGES_MAX_COUNT - untrackedImages.images.length);
@@ -3900,8 +4115,8 @@ var assembleConsultationContext = async (options) => {
     projectRules,
     scout: curated.scout,
     supportsImages,
-    tracked: tracked2,
-    untracked: untracked2
+    tracked,
+    untracked
   };
 };
 
@@ -3965,11 +4180,11 @@ var parseAutomaticDecision = (text) => {
     if (!subsequent) {
       continue;
     }
-    const repeated2 = namedGroups(subsequent).decision.trim().toLowerCase();
+    const repeated = namedGroups(subsequent).decision.trim().toLowerCase();
     if (openingFence) {
-      pendingFencedDecisions.push(repeated2);
+      pendingFencedDecisions.push(repeated);
     } else {
-      decisions.push(repeated2);
+      decisions.push(repeated);
     }
   }
   if (openingFence) {
@@ -4688,11 +4903,11 @@ var savingsLine = (costs, skipped) => {
 var formatJevTokens = (usage) => `↑${formatTokenCount(usage.inputTokens + usage.outputTokens)}`;
 var jevCostText = (usage) => {
   if (usage.unavailableCostCalls > 0) {
-    return usage.knownCostCalls > 0 ? `cost unavailable (known-provider estimates $${usage.cost.toFixed(4)}; Decisions billing unconfirmed)` : "cost unavailable (Decisions billing unconfirmed)";
+    return usage.knownCostCalls > 0 ? `cost unavailable (known catalog-priced usage $${usage.cost.toFixed(4)})` : "cost unavailable (classifier usage was not reported)";
   }
   return `$${usage.cost.toFixed(4)}`;
 };
-var markdownCosts = (invocations) => invocations.filter((item) => item.kind === "markdown" && typeof item.cost === "number").map((item) => item.cost);
+var markdownCosts = (invocations) => invocations.flatMap((item) => item.kind === "markdown" && item.cost !== undefined ? [item.cost] : []);
 var filterLine = (filter) => {
   const head = `${filter.screened} screened (${filter.allowed} allowed, ${filter.skipped} skipped${filter.repeatSkipped > 0 ? ` [${filter.repeatSkipped} repeat]` : ""})`;
   const parts = [head];
@@ -4705,7 +4920,7 @@ var filterLine = (filter) => {
   return `Jev/Decisions filter: ${parts.join(", ")}`;
 };
 var gateLine = (gate, invocations) => {
-  const consultationCosts = invocations.filter((item) => item.trigger === "turn-gate" && typeof item.cost === "number").map((item) => item.cost);
+  const consultationCosts = invocations.flatMap((item) => item.trigger === "turn-gate" && item.cost !== undefined ? [item.cost] : []);
   const gateSpend = consultationCosts.reduce((sum, cost) => sum + cost, 0);
   return `Turn gate: ${gate.checks} check${gate.checks === 1 ? "" : "s"} (Jev/Decisions ${formatJevTokens(gate.usage)} · ${jevCostText(gate.usage)}), ${gate.consultations} consultation${gate.consultations === 1 ? "" : "s"} ($${gateSpend.toFixed(4)})`;
 };
@@ -4773,7 +4988,7 @@ class AdvisorJevLedgerState {
       lines.push(filterLine(filter));
       const jevTokens = usage.inputTokens + usage.outputTokens;
       if (jevTokens > 0 || usage.unavailableCostCalls > 0) {
-        const cost = usage.unavailableCostCalls > 0 ? jevCostText(usage) : `$${usage.cost.toFixed(4)} (input only; output free)`;
+        const cost = usage.unavailableCostCalls > 0 ? jevCostText(usage) : `$${usage.cost.toFixed(4)} (catalog-priced input/cache; output free)`;
         lines.push(`Jev/Decisions cost: ${formatJevTokens(usage)} tokens · ${cost}`);
       }
       if (filter.skipped > 0) {
@@ -5067,10 +5282,14 @@ class AdvisorSessionState {
   }
   #decisionsLine() {
     const gates = this.#usage.invocations.filter((item) => item.kind === "gate");
-    return ["proceed", "revise", "blocked"].map((decision) => [
-      decision,
-      gates.filter((item) => item.decision === decision).length
-    ]).filter(([, count]) => count > 0).map(([decision, count]) => `${count} ${decision}`).join(", ") || "none";
+    const parts = [];
+    for (const decision of ["proceed", "revise", "blocked"]) {
+      const count = gates.filter((item) => item.decision === decision).length;
+      if (count > 0) {
+        parts.push(`${count} ${decision}`);
+      }
+    }
+    return parts.join(", ") || "none";
   }
   #countTrigger(trigger) {
     return this.#usage.invocations.filter((item) => item.trigger === trigger).length;
@@ -5182,6 +5401,7 @@ class CommandRuntime {
   requestManualRender = requestManualRender;
   scoutStatus;
   manualProgressSequence = 0;
+  toolAvailabilityRevision = 0;
   lastSameModelDisabled;
   constructor(pi, dependencies = {}) {
     this.pi = pi;
@@ -5192,6 +5412,9 @@ class CommandRuntime {
   }
   flowEnabled() {
     return this.pi.getActiveTools().includes("ask_advisor");
+  }
+  noteAdvisorToolsStateChange() {
+    this.toolAvailabilityRevision += 1;
   }
   resetSameModelNotice() {
     this.lastSameModelDisabled = undefined;
@@ -5230,13 +5453,13 @@ var loadCommandConfig = (ctx) => {
   }
 };
 var prepareActivationModels = async (ctx, announce, advisorOverride) => {
-  const currentModelRef2 = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-  if (!currentModelRef2) {
+  const currentModelRef = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+  if (!currentModelRef) {
     notify(ctx, "Select a chat model before enabling Advisor flow", "error");
     return;
   }
   const storedRefs = getPersistedModelRefs();
-  const persisted = { ...storedRefs, executor: currentModelRef2 };
+  const persisted = { ...storedRefs, executor: currentModelRef };
   const availableRefs = getAvailableModelRefs(ctx);
   const availableRefSet = availableRefs ? new Set(availableRefs) : undefined;
   const explicitError = getExplicitModelError(ctx, advisorRef, "Advisor", advisorOverride, availableRefSet);
@@ -5244,7 +5467,7 @@ var prepareActivationModels = async (ctx, announce, advisorOverride) => {
     notify(ctx, explicitError, "error");
     return;
   }
-  const plan = planActivationModels(ctx, currentModelRef2, advisorRef, undefined, persisted, false, advisorOverride, availableRefSet);
+  const plan = planActivationModels(ctx, currentModelRef, advisorRef, undefined, persisted, false, advisorOverride, availableRefSet);
   if (!plan.selectAdvisor) {
     return { pendingExecutor: plan.pendingExecutor, pickedModels: false };
   }
@@ -5256,7 +5479,7 @@ var prepareActivationModels = async (ctx, announce, advisorOverride) => {
     advisor: advisorOverride || persisted.advisor ? advisorRef : "",
     advisorEffort: advisorEffortRef,
     advisorFallbackModel: advisorFallbackModelRef,
-    executor: currentModelRef2,
+    executor: currentModelRef,
     executorEffort: undefined,
     selectAdvisor: plan.selectAdvisor,
     selectExecutor: false
@@ -5270,10 +5493,29 @@ var prepareActivationModels = async (ctx, announce, advisorOverride) => {
   return { pendingExecutor: plan.pendingExecutor, pickedModels: true };
 };
 
+// src/commands/advisor-tools.ts
+var ADVISOR_TOOL_NAMES = new Set(["ask_advisor", "record_advisor_outcome"]);
+var setAdvisorToolsActive = (pi, enabled) => {
+  const current = pi.getActiveTools();
+  const next = current.filter((name) => enabled || !ADVISOR_TOOL_NAMES.has(name));
+  if (enabled) {
+    for (const name of ADVISOR_TOOL_NAMES) {
+      if (!next.includes(name)) {
+        next.push(name);
+      }
+    }
+  }
+  if (next.length !== current.length || next.some((name, index) => name !== current[index])) {
+    pi.setActiveTools(next);
+  }
+};
+
 // src/commands/activation.ts
-var resolveActivationModels = async (ctx) => {
-  const executor = ctx.model;
-  if (!executor) {
+var resolveActivationModels = async (ctx, canContinue) => {
+  if (!canContinue()) {
+    return { cancelled: true };
+  }
+  if (!ctx.model) {
     return { error: "Select a chat model before enabling Advisor flow" };
   }
   const advisor = findConfiguredModel(ctx, advisorRef);
@@ -5283,53 +5525,93 @@ var resolveActivationModels = async (ctx) => {
     };
   }
   const advisorAuth = await ctx.modelRegistry.getApiKeyAndHeaders(advisor);
+  if (!canContinue()) {
+    return { cancelled: true };
+  }
   if (!(advisorAuth.ok && advisorAuth.apiKey)) {
     return { error: `No API key for Advisor ${advisorRef}` };
   }
   return {};
 };
+var restoreActivationRefsIfCurrent = (canContinue, restoreRefs) => {
+  if (canContinue()) {
+    restoreRefs();
+  }
+};
+var liveRefSnapshot = () => ({
+  advisor: advisorRef,
+  advisorEffort: advisorEffortRef,
+  contextMaxChars: contextMaxCharsRef
+});
+var persistSuccessfulActivation = (ctx, shouldSave, reenableTools, restoreRefs) => {
+  if (!shouldSave) {
+    return true;
+  }
+  try {
+    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
+  } catch (saveError) {
+    if (!reenableTools) {
+      throw saveError;
+    }
+    setAdvisorToolsEnabledRef(false);
+    restoreRefs();
+    const message = saveError instanceof Error ? saveError.message : String(saveError);
+    notify(ctx, `Could not save Advisor activation: ${message}`, "error");
+    return false;
+  }
+  return true;
+};
 var activateAdvisor = async (runtime, args, ctx, announce = true) => {
   if (!loadCommandConfig(ctx)) {
     return;
   }
-  const previous = {
-    advisor: advisorRef,
-    advisorEffort: advisorEffortRef,
-    contextMaxChars: contextMaxCharsRef
+  const { toolAvailabilityRevision } = runtime;
+  const canContinue = () => runtime.toolAvailabilityRevision === toolAvailabilityRevision;
+  const previous = liveRefSnapshot();
+  const restoreRefs = (attempted) => {
+    if (advisorRef === attempted.advisor) {
+      setAdvisorRef(previous.advisor);
+    }
+    if (advisorEffortRef === attempted.advisorEffort) {
+      setAdvisorEffortRef(previous.advisorEffort);
+    }
+    if (contextMaxCharsRef === attempted.contextMaxChars) {
+      setContextMaxCharsRef(previous.contextMaxChars);
+    }
   };
-  const restoreRefs = () => {
-    setAdvisorRef(previous.advisor);
-    setAdvisorEffortRef(previous.advisorEffort);
-    setContextMaxCharsRef(previous.contextMaxChars);
-  };
+  let attempted = liveRefSnapshot();
   const advisorOverride = hasAdvisorOverride(args);
   const argumentError = parseArgs(args);
   if (argumentError) {
-    restoreRefs();
+    attempted = liveRefSnapshot();
+    restoreRefs(attempted);
     notify(ctx, argumentError, "error");
     return;
   }
   const prepared = await prepareActivationModels(ctx, announce, advisorOverride);
+  attempted = liveRefSnapshot();
   if (!prepared) {
-    restoreRefs();
+    restoreActivationRefsIfCurrent(canContinue, () => restoreRefs(attempted));
     return;
   }
-  const { error } = await resolveActivationModels(ctx);
+  const { cancelled, error } = await resolveActivationModels(ctx, canContinue);
+  if (cancelled || !canContinue()) {
+    return;
+  }
   if (error) {
-    restoreRefs();
+    restoreRefs(attempted);
     notify(ctx, error, "error");
     return;
   }
-  if (args.trim() || prepared.pickedModels) {
-    saveConfig(ctx, { persistAdvisor: true, persistExecutor: false });
+  const reenableTools = !advisorToolsEnabledRef;
+  if (reenableTools) {
+    setAdvisorToolsEnabledRef(true);
   }
-  if (!runtime.flowEnabled()) {
-    runtime.pi.setActiveTools([
-      ...runtime.pi.getActiveTools(),
-      "ask_advisor",
-      "record_advisor_outcome"
-    ]);
+  const shouldSave = Boolean(args.trim() || prepared.pickedModels || reenableTools);
+  if (!persistSuccessfulActivation(ctx, shouldSave, reenableTools, () => restoreRefs(liveRefSnapshot()))) {
+    return;
   }
+  setAdvisorToolsActive(runtime.pi, true);
   const activeModel = ctx.model;
   runtime.updateSameModelNotice(ctx, activeModel);
   if (announce) {
@@ -5342,17 +5624,24 @@ Advisor flow ${sameModelAdvisorDisabled(ctx, activeModel) ? "configured" : "read
 };
 
 // src/commands/lifecycle.ts
-var registerCommandLifecycle = (runtime, activateAdvisor2) => {
+var registerCommandLifecycle = (runtime, activateAdvisor) => {
   runtime.pi.on("session_start", async (_event, ctx) => {
     runtime.resetSameModelNotice();
     try {
       loadConfig(ctx);
+      if (!advisorToolsEnabledRef) {
+        setAdvisorToolsActive(runtime.pi, false);
+        runtime.updateSameModelNotice(ctx);
+        return;
+      }
       if (alwaysOnRef) {
-        await activateAdvisor2("", ctx, false);
+        setAdvisorToolsActive(runtime.pi, false);
+        await activateAdvisor("", ctx, false);
       } else {
         runtime.updateSameModelNotice(ctx);
       }
     } catch (error) {
+      setAdvisorToolsActive(runtime.pi, false);
       const message = error instanceof Error ? error.message : String(error);
       notify(ctx, `Advisor activation failed: ${message}`, "error");
     }
@@ -5448,12 +5737,12 @@ var renderManualAdvisorDialog = (view) => {
   addLine(`${focusMarker("git")}${theme.bold(`Git repository context (max: ${gitCeiling}; ↑/↓ or Space to choose)`)}`);
   for (let index = 0;index < gitLevels.length; index += 1) {
     const level = gitLevels[index];
-    const copy2 = MANUAL_GIT_CONTEXT_COPY[level];
+    const copy = MANUAL_GIT_CONTEXT_COPY[level];
     const selected = index === gitIndex;
     const marker = selected ? "●" : "○";
     const optionFocus = focusTarget === "git" && selected ? "▸ " : "  ";
     const color = selected ? "accent" : "text";
-    addWrapped(`${optionFocus}${marker} ${copy2.label} — ${copy2.description}`, color);
+    addWrapped(`${optionFocus}${marker} ${copy.label} — ${copy.description}`, color);
   }
   addLine("");
   let interactionHint = "Enter submit · Shift+Enter newline · Tab/Shift+Tab focus · Esc cancel";
@@ -5689,6 +5978,131 @@ class ManualAdvisorDialog {
   }
 }
 
+// src/jev/classifier-key-store.ts
+import { chmodSync, readFileSync as readFileSync3, rmSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join5 } from "node:path";
+import { getAgentDir as getAgentDir4 } from "@earendil-works/pi-coding-agent";
+var JEV_CLASSIFIER_KEY_SERVICE = "pi-advisor-jev-classifier";
+var JEV_CLASSIFIER_KEY_NAME = "classifier-api-key";
+var KEY_FILE_MODE = 384;
+var keyFilePath = () => join5(getAgentDir4(), "jev_classifier_api_key");
+var classifierKeyFailClosed = false;
+var disableJevClassifierKeyForRuntime = () => {
+  classifierKeyFailClosed = true;
+};
+var enableJevClassifierKeyForRuntime = () => {
+  classifierKeyFailClosed = false;
+};
+var runtimeSecrets = () => {
+  const bun = globalThis;
+  return bun.Bun?.secrets;
+};
+var defaultReadFile = () => {
+  try {
+    return readFileSync3(keyFilePath(), "utf-8").trim() || undefined;
+  } catch {
+    return;
+  }
+};
+var defaultWriteFile = (key) => {
+  const path = keyFilePath();
+  writeFileSync2(path, `${key}
+`, { mode: KEY_FILE_MODE });
+  chmodSync(path, KEY_FILE_MODE);
+};
+var readJevClassifierKey = async (deps = {}) => {
+  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
+  if (secrets) {
+    try {
+      const storedValue = await secrets.get({
+        name: JEV_CLASSIFIER_KEY_NAME,
+        service: JEV_CLASSIFIER_KEY_SERVICE
+      });
+      const key = storedValue?.trim();
+      if (key) {
+        return { key, source: "bun-secrets" };
+      }
+    } catch {
+      return { failed: true };
+    }
+  }
+  const key = (deps.readFile ?? defaultReadFile)();
+  return key ? { key, source: "file" } : {};
+};
+var writeJevClassifierKey = async (key, deps = {}) => {
+  const normalized = key.trim();
+  if (!normalized) {
+    return { message: "The key is empty.", ok: false };
+  }
+  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
+  if (secrets) {
+    try {
+      await secrets.set({
+        name: JEV_CLASSIFIER_KEY_NAME,
+        service: JEV_CLASSIFIER_KEY_SERVICE,
+        value: normalized
+      });
+      return { message: "Jev classifier key stored securely.", ok: true };
+    } catch {
+      return {
+        message: "Could not store the Jev classifier key securely.",
+        ok: false
+      };
+    }
+  }
+  try {
+    (deps.writeFile ?? defaultWriteFile)(normalized);
+    return {
+      message: "Jev classifier key stored in a 0600-mode file.",
+      ok: true
+    };
+  } catch {
+    return {
+      message: "Could not store the Jev classifier key securely.",
+      ok: false
+    };
+  }
+};
+var restoreJevClassifierKey = async (previous, deps = {}) => {
+  if (previous.failed) {
+    return false;
+  }
+  if (previous.key) {
+    const result = await writeJevClassifierKey(previous.key, deps);
+    return result.ok;
+  }
+  if (deps.secrets === null && deps.writeFile) {
+    return true;
+  }
+  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
+  let secretCleared = true;
+  if (secrets) {
+    try {
+      await secrets.delete({
+        name: JEV_CLASSIFIER_KEY_NAME,
+        service: JEV_CLASSIFIER_KEY_SERVICE
+      });
+    } catch {
+      secretCleared = false;
+    }
+  }
+  try {
+    if (deps.secrets === undefined && !secrets) {
+      rmSync(keyFilePath(), { force: true });
+    }
+  } catch {
+    return false;
+  }
+  return secretCleared;
+};
+var consumeJevClassifierKey = async () => {
+  if (classifierKeyFailClosed) {
+    return;
+  }
+  const stored = await readJevClassifierKey();
+  return stored.key;
+};
+
 // src/jev/failure.ts
 class JevFailureError extends Error {
   category;
@@ -5698,636 +6112,6 @@ class JevFailureError extends Error {
     this.category = category;
   }
 }
-
-// src/jev/decisions-client.ts
-var OPENAI_DECISIONS_ENDPOINT = "https://api.openai.com/v1/decisions";
-var OPENAI_DECISIONS_MODEL = "gpt-6-luna";
-var formatEntry = (entry) => {
-  if (isString(entry)) {
-    return entry;
-  }
-  return entry === undefined ? "" : JSON.stringify(entry);
-};
-var predicateInstructions = (question) => {
-  const parts = [formatEntry(question.instructions)];
-  if (question.type === "noul") {
-    if (question.criteria?.true !== undefined) {
-      parts.push(`A true answer means: ${formatEntry(question.criteria.true)}`);
-    }
-    if (question.criteria?.false !== undefined) {
-      parts.push(`A false answer means: ${formatEntry(question.criteria.false)}`);
-    }
-  }
-  return parts.filter(Boolean).join(`
-
-`);
-};
-var scoreLevelLabel = (description, index) => {
-  const text = formatEntry(description);
-  const colon = text.indexOf(":");
-  const label = (colon === -1 ? text : text.slice(0, colon)).trim();
-  return label || `Level ${index}`;
-};
-var decisionQuestion = (name, question) => {
-  if (question.type === "noul") {
-    return {
-      instructions: predicateInstructions(question),
-      name,
-      type: "predicate"
-    };
-  }
-  if (question.type === "score") {
-    const labels = new Set;
-    const levels = question.criteria.map((description, index) => {
-      const label = scoreLevelLabel(description, index);
-      if (labels.has(label)) {
-        throw new JevFailureError("malformed", `Jev score question ${name} has duplicate level labels.`);
-      }
-      labels.add(label);
-      return { description: formatEntry(description), label };
-    });
-    return {
-      instructions: formatEntry(question.instructions),
-      levels,
-      name,
-      type: "score"
-    };
-  }
-  throw new JevFailureError("malformed", `Jev question ${name} has an unsupported type.`);
-};
-var formatDecisionsInput = (state) => {
-  if (isString(state)) {
-    return state;
-  }
-  return JSON.stringify(state, null, 2);
-};
-var buildDecisionsRequest = (state, questions) => {
-  if (!isRecordOf(questions) || Object.keys(questions).length === 0) {
-    throw new JevFailureError("malformed", "Jev questions are empty.");
-  }
-  return {
-    input: formatDecisionsInput(state),
-    model: OPENAI_DECISIONS_MODEL,
-    questions: Object.entries(questions).map(([name, question]) => decisionQuestion(name, question))
-  };
-};
-
-// src/jev/decisions-response.ts
-var malformedResponse = (detail) => new JevFailureError("malformed", `OpenAI Decisions response ${detail}.`);
-var boundedProbability = (value) => isNumber(value) && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined;
-var normalizePredicateAnswer = (answer) => {
-  const probability = boundedProbability(answer.probability);
-  if (probability === undefined) {
-    throw malformedResponse("has an invalid predicate probability");
-  }
-  return { noul: probability, type: "noul" };
-};
-var normalizeScoreAnswer = (answer, question) => {
-  if (!Array.isArray(answer.probabilities)) {
-    throw malformedResponse("has no score probability array");
-  }
-  if (answer.probabilities.length !== question.levels.length) {
-    throw malformedResponse("has an incomplete score probability array");
-  }
-  const probabilities = {};
-  const legend = {};
-  const seenLabels = new Set;
-  const seenValues = new Set;
-  let probabilityTotal = 0;
-  for (const entry of answer.probabilities) {
-    if (!isRecord(entry)) {
-      throw malformedResponse("has an invalid score probability entry");
-    }
-    const { label, value } = entry;
-    const probability = boundedProbability(entry.probability);
-    if (!isString(label) || !isNumber(value) || !Number.isSafeInteger(value) || value < 0 || value >= question.levels.length || probability === undefined || seenLabels.has(label) || seenValues.has(value)) {
-      throw malformedResponse("has an invalid or duplicate score level");
-    }
-    const level = question.levels[value];
-    if (label !== level.label) {
-      throw malformedResponse("has an ambiguous score label/value pair");
-    }
-    seenLabels.add(label);
-    seenValues.add(value);
-    probabilities[String(value)] = probability;
-    legend[String(value)] = level.description;
-    probabilityTotal += probability;
-  }
-  if (Math.abs(probabilityTotal - 1) > 0.02 || question.levels.some((level, index) => !seenValues.has(index) || !seenLabels.has(level.label))) {
-    throw malformedResponse("has an incomplete or ambiguous score distribution");
-  }
-  return { legend, probabilities, type: "score" };
-};
-var usageTokenCount = (value) => isNumber(value) && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
-var parseDecisionsApiResponse = async (response) => {
-  let value;
-  try {
-    value = await response.json();
-  } catch {
-    throw malformedResponse("was not valid JSON");
-  }
-  if (!isRecord(value)) {
-    throw malformedResponse("is not an object");
-  }
-  const { answers: rawAnswers, model, usage } = value;
-  if (!Array.isArray(rawAnswers)) {
-    throw malformedResponse("did not include an answers array");
-  }
-  if (!isRecord(usage)) {
-    throw malformedResponse("has malformed usage");
-  }
-  if (model !== undefined && !isString(model)) {
-    throw malformedResponse("has an invalid model name");
-  }
-  const answers = [];
-  for (const answer of rawAnswers) {
-    if (!isRecord(answer)) {
-      throw malformedResponse("contains an invalid answer");
-    }
-    answers.push(answer);
-  }
-  return { answers, model: isString(model) ? model : undefined, usage };
-};
-var normalizeAnswers = (responseAnswers, questions) => {
-  const expected = new Map(questions.map((question) => [question.name, question]));
-  if (expected.size !== questions.length || expected.size === 0) {
-    throw malformedResponse("has duplicate or missing requested question names");
-  }
-  const received = new Map;
-  for (const answer of responseAnswers) {
-    const { name } = answer;
-    if (!isString(name) || !name) {
-      throw malformedResponse("contains an unnamed answer");
-    }
-    if (!expected.has(name)) {
-      throw malformedResponse("contains an unexpected answer");
-    }
-    if (received.has(name)) {
-      throw malformedResponse("contains duplicate answer names");
-    }
-    if (answer.type === "refusal") {
-      throw malformedResponse("contains a refusal");
-    }
-    received.set(name, answer);
-  }
-  if (received.size !== expected.size) {
-    throw malformedResponse("is missing one or more named answers");
-  }
-  const answers = {};
-  for (const question of questions) {
-    const answer = received.get(question.name);
-    if (!answer || answer.type !== question.type) {
-      throw malformedResponse("has an answer with the wrong type");
-    }
-    answers[question.name] = question.type === "predicate" ? normalizePredicateAnswer(answer) : normalizeScoreAnswer(answer, question);
-  }
-  return answers;
-};
-var normalizeDecisionsResponse = (response, questions) => {
-  const inputTokens = usageTokenCount(response.usage.input_tokens);
-  const outputTokens = usageTokenCount(response.usage.output_tokens);
-  if (inputTokens === undefined || outputTokens === undefined) {
-    throw malformedResponse("has malformed usage");
-  }
-  return {
-    answers: normalizeAnswers(response.answers, questions),
-    model: response.model || OPENAI_DECISIONS_MODEL,
-    usage: { inputTokens, outputTokens }
-  };
-};
-
-// src/jev/client.ts
-var ENDPOINTS = {
-  "openai-decisions": OPENAI_DECISIONS_ENDPOINT,
-  openrouter: "https://openrouter.ai/api/alpha/decisions",
-  typesafe: "https://api.typesafe.ai/v1/systemone"
-};
-var range = (from, to) => Array.from({ length: to - from + 1 }, (_, index) => from + index);
-var RETRYABLE_STATUSES = new Set([408, 429, ...range(500, 599)]);
-var RETRY_BACKOFF_MS = 250;
-var MAX_ATTEMPTS = 2;
-var finiteTokens = (value) => isNumber(value) && Number.isFinite(value) && value >= 0 ? value : 0;
-var errorDetail = (error) => {
-  if (isString(error)) {
-    return error;
-  }
-  if (isRecordOf(error) && "message" in error) {
-    return String(error.message);
-  }
-  return "";
-};
-var statusCategory = (status) => {
-  if (status === 401 || status === 403) {
-    return "auth";
-  }
-  if (status === 400 || status === 422) {
-    return "malformed";
-  }
-  return "error";
-};
-var openRouterModelId = (model) => model.includes("/") ? model : `~typesafe/${model}`;
-var buildClientRequest = (transport, model, state, questions) => {
-  if (transport === "openai-decisions") {
-    const request = buildDecisionsRequest(state, questions);
-    return {
-      body: JSON.stringify(request),
-      decisionQuestions: request.questions
-    };
-  }
-  return {
-    body: JSON.stringify({ model, questions, state })
-  };
-};
-var connectionFailure = (error) => {
-  const message = redactSecrets(error instanceof Error ? error.message : String(error));
-  return {
-    failure: new JevFailureError("network", `Jev connection failed: ${message}`)
-  };
-};
-var sleepWithAbort = (signal, ms) => {
-  if (signal.aborted) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve4) => {
-    const timer = setTimeout(resolve4, ms);
-    timer.unref?.();
-    signal.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve4();
-    }, { once: true });
-  });
-};
-
-class JevClient {
-  #apiKey;
-  #endpoint;
-  #fetch;
-  #model;
-  #pricePerMtok;
-  #timeoutMs;
-  #transport;
-  constructor({
-    apiKey,
-    fetch,
-    model,
-    pricePerMtok,
-    timeoutMs,
-    transport
-  }) {
-    this.#apiKey = apiKey;
-    this.#endpoint = ENDPOINTS[transport];
-    this.#fetch = fetch ?? globalThis.fetch.bind(globalThis);
-    if (transport === "openai-decisions") {
-      this.#model = OPENAI_DECISIONS_MODEL;
-    } else if (transport === "openrouter") {
-      this.#model = openRouterModelId(model);
-    } else {
-      this.#model = model;
-    }
-    this.#pricePerMtok = pricePerMtok;
-    this.#timeoutMs = timeoutMs;
-    this.#transport = transport;
-  }
-  async ask(state, questions, signal) {
-    const { body, decisionQuestions } = buildClientRequest(this.#transport, this.#model, state, questions);
-    const deadline = new AbortController;
-    const abortFromCaller = () => deadline.abort(signal?.reason);
-    signal?.addEventListener("abort", abortFromCaller, { once: true });
-    if (signal?.aborted) {
-      abortFromCaller();
-    }
-    let deadlineHit = false;
-    const timer = setTimeout(() => {
-      deadlineHit = true;
-      deadline.abort(new Error("Jev wall-time budget elapsed"));
-    }, this.#timeoutMs);
-    timer.unref?.();
-    try {
-      let outcome = {};
-      for (let attempt = 1;; attempt += 1) {
-        outcome = await this.#attempt(body, deadline.signal, decisionQuestions);
-        if (!outcome.retryable || attempt >= MAX_ATTEMPTS || deadline.signal.aborted) {
-          break;
-        }
-        await sleepWithAbort(deadline.signal, RETRY_BACKOFF_MS);
-        if (deadline.signal.aborted) {
-          break;
-        }
-      }
-      return this.#settle(outcome, deadlineHit, signal);
-    } catch (error) {
-      if (signal?.aborted && !deadlineHit) {
-        throw error;
-      }
-      if (error instanceof JevFailureError) {
-        throw error;
-      }
-      const message = redactSecrets(error instanceof Error ? error.message : String(error));
-      throw deadlineHit ? new JevFailureError("timeout", `Jev call exceeded its ${this.#timeoutMs} ms wall-time budget.`) : new JevFailureError("error", message);
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abortFromCaller);
-    }
-  }
-  #settle(outcome, deadlineHit, signal) {
-    if (outcome.answers) {
-      return this.#result(outcome);
-    }
-    if (deadlineHit && outcome.failure?.category !== "auth") {
-      throw new JevFailureError("timeout", `Jev call exceeded its ${this.#timeoutMs} ms wall-time budget.`);
-    }
-    if (signal?.aborted) {
-      throw new Error("Jev call aborted by the caller.");
-    }
-    if (outcome.failure) {
-      throw outcome.failure;
-    }
-    throw new JevFailureError("error", "Jev call failed.");
-  }
-  async#attempt(body, signal, decisionQuestions) {
-    if (signal.aborted) {
-      return { retryable: false };
-    }
-    let response;
-    try {
-      response = await this.#fetch(this.#endpoint, {
-        body,
-        headers: {
-          authorization: `Bearer ${this.#apiKey}`,
-          "content-type": "application/json"
-        },
-        method: "POST",
-        signal
-      });
-    } catch (error) {
-      if (signal.aborted) {
-        return { retryable: false };
-      }
-      return {
-        retryable: true,
-        ...connectionFailure(error)
-      };
-    }
-    if (response.ok) {
-      return this.#parseSuccess(response, decisionQuestions);
-    }
-    const failure = await this.#failureFromStatus(response);
-    return {
-      failure,
-      retryable: RETRYABLE_STATUSES.has(response.status)
-    };
-  }
-  async#failureFromStatus(response) {
-    let detail = "";
-    try {
-      const parsed = await response.json();
-      const error = isRecord(parsed) ? parsed.error : undefined;
-      detail = errorDetail(error);
-    } catch {
-      detail = "";
-    }
-    const message = redactSecrets(`Jev ${this.#transportLabel()} request failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.`);
-    return new JevFailureError(statusCategory(response.status), message);
-  }
-  #transportLabel() {
-    if (this.#transport === "openrouter") {
-      return "OpenRouter";
-    }
-    return this.#transport === "openai-decisions" ? "OpenAI Decisions" : "TypeSafe";
-  }
-  async#parseSuccess(response, decisionQuestions) {
-    if (this.#transport === "openai-decisions") {
-      const normalized = normalizeDecisionsResponse(await parseDecisionsApiResponse(response), decisionQuestions ?? []);
-      return {
-        answers: normalized.answers,
-        model: normalized.model,
-        usage: {
-          input_tokens: normalized.usage.inputTokens,
-          output_tokens: normalized.usage.outputTokens
-        }
-      };
-    }
-    let parsed;
-    try {
-      parsed = await response.json();
-    } catch (error) {
-      return {
-        failure: new JevFailureError("malformed", `Jev response was not JSON: ${redactSecrets(error instanceof Error ? error.message : String(error))}`)
-      };
-    }
-    if (!isRecord(parsed) || !isRecord(parsed.answers)) {
-      return {
-        failure: new JevFailureError("malformed", "Jev response did not include an answers object.")
-      };
-    }
-    return {
-      answers: parsed.answers,
-      model: isString(parsed.model) ? parsed.model : this.#model,
-      usage: isRecordOf(parsed.usage) ? {
-        input_tokens: parsed.usage.input_tokens,
-        output_tokens: parsed.usage.output_tokens
-      } : undefined
-    };
-  }
-  #result(outcome) {
-    const { usage } = outcome;
-    const inputTokens = finiteTokens(usage?.input_tokens);
-    const outputTokens = finiteTokens(usage?.output_tokens);
-    const price = this.#pricePerMtok ?? advisorJevPricePerMtokRef;
-    return {
-      answers: outcome.answers ?? {},
-      model: outcome.model ?? this.#model,
-      usage: {
-        cost: this.#transport === "openai-decisions" ? undefined : inputTokens / 1e6 * price,
-        inputTokens,
-        outputTokens
-      }
-    };
-  }
-}
-var jevClientFromCredentials = (credentials, fetch) => new JevClient({
-  apiKey: credentials.apiKey,
-  fetch,
-  model: advisorJevModelRef,
-  timeoutMs: advisorJevTimeoutMsRef,
-  transport: credentials.transport
-});
-
-// src/jev/key-store.ts
-import {
-  chmodSync,
-  existsSync as existsSync4,
-  readFileSync as readFileSync3,
-  rmSync,
-  writeFileSync as writeFileSync2
-} from "node:fs";
-import { join as join5 } from "node:path";
-import { getAgentDir as getAgentDir4 } from "@earendil-works/pi-coding-agent";
-var TYPESAFE_KEY_ENV_VAR = "TYPESAFE_API_KEY";
-var TYPESAFE_KEY_SERVICE = "pi-advisor";
-var TYPESAFE_KEY_NAME = "typesafe-api-key";
-var TYPESAFE_KEY_CONFIG_FIELD = "typesafe_api_key";
-var KEY_FILE_MODE = 384;
-var keyFilePath = () => join5(getAgentDir4(), "typesafe_api_key");
-var runtimeSecrets = () => {
-  const bun = globalThis;
-  return bun.Bun?.secrets;
-};
-var normalizeKey = (value) => value?.trim() || undefined;
-var readAdvisorJsonConfig = () => {
-  try {
-    return readExistingConfig(resolveAdvisorConfigPath());
-  } catch {
-    return {};
-  }
-};
-var defaultReadFileStore = () => {
-  try {
-    return normalizeKey(readFileSync3(keyFilePath(), "utf-8"));
-  } catch {
-    return;
-  }
-};
-var defaultWriteFileStore = (key) => {
-  const path = keyFilePath();
-  writeFileSync2(path, `${key}
-`, { mode: KEY_FILE_MODE });
-  chmodSync(path, KEY_FILE_MODE);
-};
-var defaultDeleteFileStore = () => {
-  rmSync(keyFilePath(), { force: true });
-};
-var messageOf = (error) => redactSecrets(error instanceof Error ? error.message : String(error));
-var resolveTypeSafeKey = async (deps = {}) => {
-  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
-  if (secrets) {
-    try {
-      const stored = normalizeKey(await secrets.get({
-        name: TYPESAFE_KEY_NAME,
-        service: TYPESAFE_KEY_SERVICE
-      }));
-      if (stored) {
-        return { key: stored, source: "bun-secrets" };
-      }
-    } catch {}
-  }
-  const env = deps.env ?? process.env;
-  const fromEnv = normalizeKey(env[TYPESAFE_KEY_ENV_VAR]);
-  if (fromEnv) {
-    return { key: fromEnv, source: "env" };
-  }
-  const readFileStore = deps.readFileStore ?? defaultReadFileStore;
-  const fromFile = normalizeKey(readFileStore());
-  if (fromFile) {
-    return { key: fromFile, source: "file" };
-  }
-  const config = (deps.readAdvisorJson ?? readAdvisorJsonConfig)();
-  const staged = config[TYPESAFE_KEY_CONFIG_FIELD];
-  if (isString(staged)) {
-    const fromConfig = normalizeKey(staged);
-    if (fromConfig) {
-      return { key: fromConfig, source: "advisor-json" };
-    }
-  }
-  return {};
-};
-var writeKeyTypeSafeKey = async (key, deps = {}) => {
-  const normalized = normalizeKey(key);
-  if (!normalized) {
-    return { message: "The key is empty.", ok: false };
-  }
-  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
-  if (secrets) {
-    try {
-      await secrets.set({
-        name: TYPESAFE_KEY_NAME,
-        service: TYPESAFE_KEY_SERVICE,
-        value: normalized
-      });
-      return { message: "Key stored in Bun.secrets.", ok: true };
-    } catch (error) {
-      return {
-        message: `Storing the key in Bun.secrets failed: ${messageOf(error)}. Alternatively set the ${TYPESAFE_KEY_ENV_VAR} environment variable in your shell profile.`,
-        ok: false
-      };
-    }
-  }
-  try {
-    (deps.writeFileStore ?? defaultWriteFileStore)(normalized);
-    return {
-      message: "Key stored in ~/.pi/agent/typesafe_api_key (mode 0600).",
-      ok: true
-    };
-  } catch (error) {
-    return {
-      message: `Storing the key failed: ${messageOf(error)}. Alternatively set the ${TYPESAFE_KEY_ENV_VAR} environment variable in your shell profile.`,
-      ok: false
-    };
-  }
-};
-var clearKeyTypeSafeKey = async (deps = {}) => {
-  let clearedSomething = false;
-  let firstError;
-  const secrets = deps.secrets === undefined ? runtimeSecrets() : deps.secrets;
-  if (secrets) {
-    try {
-      await secrets.delete({
-        name: TYPESAFE_KEY_NAME,
-        service: TYPESAFE_KEY_SERVICE
-      });
-      clearedSomething = true;
-    } catch (error) {
-      firstError = messageOf(error);
-    }
-  }
-  try {
-    if (deps.deleteFileStore) {
-      deps.deleteFileStore();
-    } else if (existsSync4(keyFilePath())) {
-      defaultDeleteFileStore();
-    }
-    clearedSomething = true;
-  } catch (error) {
-    firstError ??= messageOf(error);
-  }
-  if (firstError) {
-    return {
-      message: `Clearing the stored key failed: ${firstError}.`,
-      ok: false
-    };
-  }
-  return {
-    message: `Stored key cleared.${clearedSomething ? "" : ` Nothing was stored; unset ${TYPESAFE_KEY_ENV_VAR} and remove ${TYPESAFE_KEY_CONFIG_FIELD} from advisor.json yourself if you use them.`}`,
-    ok: true
-  };
-};
-var removeTypeSafeKeyFromAdvisorJson = () => {
-  try {
-    const path = resolveAdvisorConfigPath();
-    const existing = readExistingConfig(path);
-    if (!(TYPESAFE_KEY_CONFIG_FIELD in existing)) {
-      return { message: "No plaintext key in advisor.json.", ok: true };
-    }
-    const retained = Object.fromEntries(Object.entries(existing).filter(([key]) => key !== TYPESAFE_KEY_CONFIG_FIELD));
-    writeFileSync2(path, `${JSON.stringify(retained, null, 2)}
-`);
-    resetConfigCache();
-    return { message: "Plaintext key removed from advisor.json.", ok: true };
-  } catch (error) {
-    return {
-      message: `Removing the plaintext key failed: ${messageOf(error)}.`,
-      ok: false
-    };
-  }
-};
-var warnedPlaintextKey = false;
-var consumePlaintextKeyWarning = () => {
-  if (warnedPlaintextKey) {
-    return;
-  }
-  warnedPlaintextKey = true;
-  return `Advisor is using a plaintext ${TYPESAFE_KEY_CONFIG_FIELD} from advisor.json; this is not recommended. Open /advisor-settings → Jev/Decisions consultation filter to migrate it into a secure store, or use the ${TYPESAFE_KEY_ENV_VAR} environment variable.`;
-};
 
 // src/jev/questions.ts
 var STAKES_RUBRIC = [
@@ -6351,8 +6135,27 @@ var screeningQuestions = {
     type: "score"
   }
 };
+var nativeScreeningQuestions = {
+  self_answerable: {
+    criteria: {
+      false: "The executor needs the Advisor's second opinion.",
+      true: "The executor can resolve this alone with available tools and context."
+    },
+    instructions: `Can the executor confidently resolve this request alone, using available tools and context? ${EVIDENCE_RULE}`,
+    type: "bool"
+  },
+  stakes: {
+    criteria: {
+      high: STAKES_RUBRIC[2],
+      moderate: STAKES_RUBRIC[1],
+      negligible: STAKES_RUBRIC[0]
+    },
+    instructions: `How material are the stakes of the decision behind this consultation request? ${EVIDENCE_RULE}`,
+    type: "choice"
+  }
+};
 var NUMERIC_KEY_PATTERN = /^\d+$/u;
-var finiteNumber = (value) => isNumber(value) && Number.isFinite(value) ? value : undefined;
+var finiteProbability = (value) => isNumber(value) && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined;
 var lowestStakesProbability = (answer) => {
   if (!isRecordOf(answer)) {
     return;
@@ -6362,8 +6165,11 @@ var lowestStakesProbability = (answer) => {
   if (legend) {
     const exact = Object.keys(legend).find((key) => legend[key] === STAKES_RUBRIC[0]);
     if (exact) {
-      return finiteNumber(probabilities[exact]);
+      return finiteProbability(probabilities[exact]);
     }
+  }
+  if (Object.hasOwn(probabilities, "negligible")) {
+    return finiteProbability(probabilities.negligible);
   }
   const numericKeys = Object.keys(probabilities).filter((key) => NUMERIC_KEY_PATTERN.test(key));
   if (numericKeys.length === 0) {
@@ -6375,31 +6181,202 @@ var lowestStakesProbability = (answer) => {
       lowest = key;
     }
   }
-  return finiteNumber(probabilities[lowest]);
+  return finiteProbability(probabilities[lowest]);
 };
-var selfAnswerableNoul = (answer) => isRecordOf(answer) ? finiteNumber(answer.noul) : undefined;
+var selfAnswerableProbability = (answer) => {
+  if (!isRecordOf(answer)) {
+    return;
+  }
+  const value = answer.type === "bool" ? answer.probability : answer.noul;
+  return finiteProbability(value);
+};
 var composeScreeningVerdict = (answers, { noulMargin, skipConfidence }) => {
   if (!isRecordOf(answers)) {
     return { skip: false };
   }
   const negligibleMass = lowestStakesProbability(answers.stakes);
-  const noul = selfAnswerableNoul(answers.self_answerable);
-  if (negligibleMass === undefined || noul === undefined) {
+  const selfAnswerable = selfAnswerableProbability(answers.self_answerable);
+  if (negligibleMass === undefined || selfAnswerable === undefined) {
     return { skip: false };
   }
-  const confidentlySelfAnswerable = noul >= 0.5 + noulMargin;
   return {
-    skip: negligibleMass >= skipConfidence && confidentlySelfAnswerable
+    skip: negligibleMass >= skipConfidence && selfAnswerable >= 0.5 + noulMargin
   };
 };
 var composeTurnGateVerdict = (answers, threshold) => {
   if (!isRecordOf(answers)) {
     return false;
   }
-  const answer = answers.should_consult;
-  const noul = isRecordOf(answer) ? finiteNumber(answer.noul) : undefined;
-  return noul !== undefined && noul >= threshold;
+  const probability = selfAnswerableProbability(answers.should_consult);
+  return probability !== undefined && probability >= threshold;
 };
+
+// src/jev/classifier.ts
+var REF_PATTERN = /^(?<provider>[^/]+)\/(?<modelId>.+)$/u;
+var parseJevClassifierRef = (ref) => {
+  const match = REF_PATTERN.exec(ref.trim());
+  const provider = match?.groups?.provider;
+  const modelId = match?.groups?.modelId;
+  return provider && modelId ? { modelId, provider } : undefined;
+};
+var isClassifierModel = (model) => isRecordOf(model) && model.type === "classifier" && typeof model.provider === "string" && typeof model.id === "string" && typeof model.api === "string" && isRecordOf(model.cost);
+var isProbability = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
+var normalizedUsage = (usage) => {
+  if (!usage) {
+    return;
+  }
+  const inputTokens = usage.input;
+  const outputTokens = usage.output;
+  const inputCost = usage.cost?.input;
+  const cacheReadCost = usage.cost?.cacheRead;
+  const cacheWriteCost = usage.cost?.cacheWrite;
+  if (!Number.isFinite(inputTokens) || inputTokens < 0 || !Number.isFinite(outputTokens) || outputTokens < 0) {
+    return;
+  }
+  const completeCost = Number.isFinite(inputCost) && inputCost >= 0 && Number.isFinite(cacheReadCost) && cacheReadCost >= 0 && Number.isFinite(cacheWriteCost) && cacheWriteCost >= 0;
+  const cost = completeCost ? inputCost + cacheReadCost + cacheWriteCost : undefined;
+  const piUsage = completeCost && cost !== undefined ? {
+    ...usage,
+    cost: {
+      ...usage.cost,
+      input: inputCost,
+      output: 0,
+      total: cost
+    }
+  } : undefined;
+  return { cost, inputTokens, outputTokens, piUsage };
+};
+var abortError = () => new DOMException("Jev classifier call aborted by the caller.", "AbortError");
+var normalizeClassifierAnswers = (result, required) => {
+  if (!isRecordOf(result.answers)) {
+    throw new JevFailureError("malformed", "Classifier returned malformed answers.");
+  }
+  const answers = {};
+  for (const name of required) {
+    const answer = result.answers[name];
+    if (isRecordOf(answer) && answer.type === "bool" && isProbability(answer.probability)) {
+      if (name === "self_answerable" || name === "should_consult") {
+        answers[name] = { noul: answer.probability, type: "noul" };
+      } else {
+        throw new JevFailureError("malformed", `Classifier returned an unexpected bool answer for ${name}.`);
+      }
+      continue;
+    }
+    if (isRecordOf(answer) && answer.type === "choice") {
+      if (!isRecordOf(answer.probabilities) || !isString(answer.choice)) {
+        throw new JevFailureError("malformed", `Classifier returned malformed ${name} choice.`);
+      }
+      const probabilities = {};
+      for (const [label, probability] of Object.entries(answer.probabilities)) {
+        if (!isProbability(probability)) {
+          throw new JevFailureError("malformed", `Classifier returned an invalid ${name} probability.`);
+        }
+        probabilities[label] = probability;
+      }
+      if (name === "stakes") {
+        const expected = ["high", "moderate", "negligible"];
+        const distributionTotal = expected.reduce((sum, label) => sum + (probabilities[label] ?? 0), 0);
+        if (!expected.includes(answer.choice) || expected.some((label) => !Object.hasOwn(probabilities, label)) || distributionTotal <= 0 || Math.abs(distributionTotal - 1) > 0.05) {
+          throw new JevFailureError("malformed", "Classifier returned an incomplete stakes distribution.");
+        }
+        if (!isProbability(answer.confidence)) {
+          throw new JevFailureError("malformed", "Classifier returned invalid stakes confidence.");
+        }
+        answers.stakes = {
+          choice: answer.choice,
+          confidence: answer.confidence,
+          probabilities,
+          type: "choice"
+        };
+      } else {
+        throw new JevFailureError("malformed", `Classifier returned unsupported choice answer for ${name}.`);
+      }
+      continue;
+    }
+    throw new JevFailureError("malformed", `Classifier omitted or invalidated ${name}.`);
+  }
+  return answers;
+};
+var classifyWithinDeadline = async (ctx, model, state, questions, options, timeoutMs) => {
+  const controller = new AbortController;
+  const callerSignal = options.signal ?? ctx.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) {
+    throw abortError();
+  }
+  callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => {
+    controller.abort(new DOMException("Timed out", "TimeoutError"));
+  }, timeoutMs);
+  const apiOptions = {
+    maxRetries: 0,
+    signal: controller.signal,
+    timeoutMs
+  };
+  if (options.apiKey !== undefined) {
+    apiOptions.apiKey = options.apiKey;
+  }
+  let abortListener;
+  try {
+    const classification = ctx.modelRegistry.classify(model, { questions, state }, apiOptions);
+    const aborted = Promise.withResolvers();
+    abortListener = () => {
+      aborted.reject(controller.signal.reason ?? abortError());
+    };
+    controller.signal.addEventListener("abort", abortListener, { once: true });
+    const request = Promise.race([classification, aborted.promise]);
+    return await request;
+  } catch (error) {
+    if (callerSignal?.aborted) {
+      throw error;
+    }
+    if (controller.signal.aborted) {
+      throw new JevFailureError("timeout", `Jev classifier timed out after ${timeoutMs}ms.`);
+    }
+    if (error instanceof JevFailureError) {
+      throw error;
+    }
+    throw new JevFailureError("error", "Jev classifier request failed.");
+  } finally {
+    clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+    if (abortListener) {
+      controller.signal.removeEventListener("abort", abortListener);
+    }
+  }
+};
+var classifyWithJev = async (ctx, ref, state, questions, options = {}) => {
+  const parsed = parseJevClassifierRef(ref);
+  if (!parsed) {
+    throw new JevFailureError("malformed", "No Jev classifier is selected.");
+  }
+  const model = ctx.modelRegistry.findOfType("classifier", parsed.provider, parsed.modelId);
+  if (!isClassifierModel(model)) {
+    throw new JevFailureError("error", `Selected classifier ${ref} is unavailable.`);
+  }
+  const timeoutMs = Math.max(1, advisorJevTimeoutMsRef);
+  const result = await classifyWithinDeadline(ctx, model, state, questions, options, timeoutMs);
+  const stopped = result.stopReason !== "stop";
+  if (stopped) {
+    throw new JevFailureError("error", `Jev classifier stopped: ${result.stopReason}.`);
+  }
+  return {
+    answers: normalizeClassifierAnswers(result, Object.keys(questions)),
+    model: `${result.provider}/${result.model}`,
+    usage: normalizedUsage(result.usage)
+  };
+};
+var classifyScreening = (ctx, ref, state, options) => classifyWithJev(ctx, ref, state, nativeScreeningQuestions, options);
+var classifyTurnGate = (ctx, ref, state, options) => classifyWithJev(ctx, ref, state, {
+  should_consult: {
+    criteria: {
+      false: "The executor is progressing soundly on work that matches the user's intent; interrupting would add nothing material.",
+      true: "The executor is approaching a material decision, repeating a failure, about to claim success without validation, or drifting from the user's intent; a second opinion now would change what happens next."
+    },
+    instructions: "Should a senior engineering advisor be consulted right now, before the executor continues? Judge from `recent_conversation`.",
+    type: "bool"
+  }
+}, options);
 
 // src/jev/state.ts
 var JEV_TEXT_CAP_BYTES = 8 * 1024;
@@ -6416,197 +6393,6 @@ var buildJevState = (ctx, input = {}) => {
     fields.set("recent_conversation", digest);
   }
   return Object.fromEntries(fields);
-};
-
-// src/jev/openai-key-store.ts
-import {
-  chmodSync as chmodSync2,
-  existsSync as existsSync5,
-  readFileSync as readFileSync4,
-  rmSync as rmSync2,
-  writeFileSync as writeFileSync3
-} from "node:fs";
-import { join as join6 } from "node:path";
-import { getAgentDir as getAgentDir5 } from "@earendil-works/pi-coding-agent";
-var OPENAI_DECISIONS_KEY_SERVICE = "pi-advisor";
-var OPENAI_DECISIONS_KEY_NAME = "openai-decisions-api-key";
-var KEY_FILE_MODE2 = 384;
-var runtimeSecrets2 = () => {
-  const bun = globalThis;
-  return bun.Bun?.secrets;
-};
-var keyFilePath2 = () => join6(getAgentDir5(), "openai_api_key");
-var normalizeKey2 = (value) => value?.trim() || undefined;
-var readDefaultFileStore = () => {
-  try {
-    return normalizeKey2(readFileSync4(keyFilePath2(), "utf-8"));
-  } catch {
-    return;
-  }
-};
-var writeDefaultFileStore = (key) => {
-  const path = keyFilePath2();
-  writeFileSync3(path, `${key}
-`, { mode: KEY_FILE_MODE2 });
-  chmodSync2(path, KEY_FILE_MODE2);
-};
-var deleteDefaultFileStore = () => rmSync2(keyFilePath2(), { force: true });
-var messageOf2 = (error) => redactSecrets(error instanceof Error ? error.message : String(error));
-var resolveOpenAIDecisionsKey = async (deps = {}) => {
-  const secrets = deps.secrets === undefined ? runtimeSecrets2() : deps.secrets;
-  if (secrets) {
-    let secretKey;
-    try {
-      secretKey = normalizeKey2(await secrets.get({
-        name: OPENAI_DECISIONS_KEY_NAME,
-        service: OPENAI_DECISIONS_KEY_SERVICE
-      }));
-    } catch {
-      secretKey = undefined;
-    }
-    if (secretKey) {
-      return { key: secretKey, source: "openai-bun-secrets" };
-    }
-  }
-  const key = normalizeKey2((deps.readFileStore ?? readDefaultFileStore)());
-  return key ? { key, source: "openai-file" } : {};
-};
-var writeOpenAIDecisionsKey = async (key, deps = {}) => {
-  const normalized = normalizeKey2(key);
-  if (!normalized) {
-    return { message: "The OpenAI API key is empty.", ok: false };
-  }
-  const secrets = deps.secrets === undefined ? runtimeSecrets2() : deps.secrets;
-  if (secrets) {
-    try {
-      await secrets.set({
-        name: OPENAI_DECISIONS_KEY_NAME,
-        service: OPENAI_DECISIONS_KEY_SERVICE,
-        value: normalized
-      });
-      return { message: "OpenAI API key stored in Bun.secrets.", ok: true };
-    } catch (error) {
-      return {
-        message: `Storing the OpenAI API key in Bun.secrets failed: ${messageOf2(error)}. Configure OPENAI_API_KEY in Pi or retry secure storage.`,
-        ok: false
-      };
-    }
-  }
-  try {
-    (deps.writeFileStore ?? writeDefaultFileStore)(normalized);
-    return {
-      message: "OpenAI API key stored in the Pi agent directory (mode 0600).",
-      ok: true
-    };
-  } catch (error) {
-    return {
-      message: `Storing the OpenAI API key failed: ${messageOf2(error)}. Configure OPENAI_API_KEY in Pi or retry secure storage.`,
-      ok: false
-    };
-  }
-};
-var clearOpenAIDecisionsKey = async (deps = {}) => {
-  let firstError;
-  const secrets = deps.secrets === undefined ? runtimeSecrets2() : deps.secrets;
-  if (secrets) {
-    try {
-      await secrets.delete({
-        name: OPENAI_DECISIONS_KEY_NAME,
-        service: OPENAI_DECISIONS_KEY_SERVICE
-      });
-    } catch (error) {
-      firstError = messageOf2(error);
-    }
-  }
-  try {
-    if (deps.deleteFileStore) {
-      deps.deleteFileStore();
-    } else if (existsSync5(keyFilePath2())) {
-      deleteDefaultFileStore();
-    }
-  } catch (error) {
-    firstError ??= messageOf2(error);
-  }
-  if (firstError) {
-    return {
-      message: `Clearing the OpenAI API key failed: ${firstError}.`,
-      ok: false
-    };
-  }
-  return { message: "Stored OpenAI API key cleared.", ok: true };
-};
-
-// src/jev/transport.ts
-var OPENROUTER_PROVIDER = "openrouter";
-var OPENAI_PROVIDER = "openai";
-var OPENAI_API_KEY_SOURCES = new Map([
-  ["OPENAI_API_KEY", "openai-env"],
-  ["stored credential", "openai-provider-credential"]
-]);
-var openAiPlatformCredentials = async (ctx, deps) => {
-  let result;
-  try {
-    result = deps.getProviderAuth ? await deps.getProviderAuth(OPENAI_PROVIDER) : await ctx?.modelRegistry?.getProviderAuth(OPENAI_PROVIDER);
-  } catch {
-    result = undefined;
-  }
-  const source = result?.source;
-  const credentialSource = source ? OPENAI_API_KEY_SOURCES.get(source) : undefined;
-  const apiKey = result?.auth.apiKey?.trim();
-  if (credentialSource && apiKey) {
-    return {
-      apiKey,
-      source: credentialSource,
-      transport: "openai-decisions"
-    };
-  }
-  try {
-    const stored = await (deps.resolveOpenAIKey ?? resolveOpenAIDecisionsKey)();
-    const storedKey = stored.key?.trim();
-    return storedKey && stored.source ? {
-      apiKey: storedKey,
-      source: stored.source,
-      transport: "openai-decisions"
-    } : undefined;
-  } catch {
-    return;
-  }
-};
-var openRouterKey = async (ctx, deps) => {
-  const key = deps.getProviderKey ? await deps.getProviderKey(OPENROUTER_PROVIDER) : await ctx?.modelRegistry?.getApiKeyForProvider(OPENROUTER_PROVIDER);
-  return key?.trim() || undefined;
-};
-var typeSafeCredentials = async (deps) => {
-  const resolution = await (deps.resolveTypesafe ?? resolveTypeSafeKey)();
-  if (!resolution.key) {
-    return;
-  }
-  const credentials = {
-    apiKey: resolution.key,
-    transport: "typesafe"
-  };
-  if (resolution.source) {
-    credentials.source = resolution.source;
-  }
-  return credentials;
-};
-var resolveJevTransportFor = async (transport, ctx, deps = {}) => {
-  if (transport === "typesafe") {
-    return typeSafeCredentials(deps);
-  }
-  if (transport === "openrouter") {
-    const key = await openRouterKey(ctx, deps);
-    return key ? { apiKey: key, transport } : undefined;
-  }
-  return openAiPlatformCredentials(ctx, deps);
-};
-var resolveJevTransport = async (ctx, deps = {}) => {
-  const preference = advisorJevTransportRef;
-  if (preference !== "auto") {
-    return resolveJevTransportFor(preference, ctx, deps);
-  }
-  const typesafe = await typeSafeCredentials(deps);
-  return typesafe ?? resolveJevTransportFor("openrouter", ctx, deps);
 };
 
 // src/tools/outage-notifier.ts
@@ -6636,7 +6422,7 @@ var SCREENED_SKIP_TEXT = "Advisor consultation skipped (screened out): the stake
 var repeatSkipText = (advice) => `Advisor consultation skipped (already answered): this question was answered earlier in this session; the earlier advice is reattached below. Consult again only if the situation has materially changed.
 
 ${advice}`;
-var outageNotifier = createOutageNotifier((category, message) => `Advisor Jev/Decisions filter failed (${category}); allowing consultations. ${message}`);
+var outageNotifier = createOutageNotifier((category, message) => `Advisor Jev classifier failed (${category}); allowing consultations. ${message}`);
 var notifyOutageOnce = outageNotifier.notify;
 var resetJevOutageNotification = outageNotifier.reset;
 var allow = () => ({ decision: "allow" });
@@ -6654,23 +6440,29 @@ var bypassOutcome = (session, options, normalizedQuestion) => {
   }
   return;
 };
+var classifierRef = (deps) => advisorJevClassifierModeRef === "api-key" ? "typesafe/jev-latest" : deps.selectedRef?.() ?? advisorJevClassifierRef;
+var apiKeyFor = (deps) => advisorJevClassifierModeRef === "api-key" ? (deps.resolveApiKey ?? consumeJevClassifierKey)() : Promise.resolve(undefined);
 var screenWithJev = async (ctx, session, options, deps, normalizedQuestion) => {
-  const credentials = await (deps.resolveTransport ?? resolveJevTransport)(ctx);
-  if (!credentials) {
+  const selectedRef = classifierRef(deps);
+  const apiKey = await apiKeyFor(deps);
+  if (!selectedRef || advisorJevClassifierModeRef === "api-key" && !apiKey) {
     session.recordJevFilterFailure();
-    notifyOutageOnce(ctx, "missing-key", "No credentials resolved for the selected Jev/Decisions provider.");
+    notifyOutageOnce(ctx, "missing-key", "No credentials resolved for the selected Jev classifier.");
     return allow();
   }
-  if (credentials.source === "advisor-json") {
-    const warning = consumePlaintextKeyWarning();
-    if (warning && ctx.hasUI) {
-      ctx.ui.notify(warning, "warning");
-    }
-  }
-  const client = jevClientFromCredentials(credentials, deps.fetch);
   try {
-    const result = await client.ask(buildJevState(ctx, options), screeningQuestions, options.signal);
-    session.recordJevFilterUsage(result.usage);
+    const state = buildJevState(ctx, options);
+    const result = deps.classifyResult ? await deps.classifyResult(state, options.signal) : await (deps.classify ?? classifyScreening)(ctx, selectedRef, state, {
+      apiKey: advisorJevClassifierModeRef === "api-key" ? apiKey : undefined,
+      signal: options.signal
+    });
+    if (result.usage) {
+      session.recordJevFilterUsage({
+        cost: result.usage.cost,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens
+      });
+    }
     const verdict = composeScreeningVerdict(result.answers, {
       noulMargin: advisorJevFilterNoulMarginRef,
       skipConfidence: advisorJevFilterSkipConfidenceRef
@@ -6680,11 +6472,12 @@ var screenWithJev = async (ctx, session, options, deps, normalizedQuestion) => {
       return {
         decision: "skip",
         kind: "screened",
-        reason: "low stakes and resolvable without a consultation"
+        reason: "low stakes and resolvable without a consultation",
+        usage: result.usage?.piUsage
       };
     }
     session.recordJevFilterAllowed();
-    return allow();
+    return { decision: "allow", usage: result.usage?.piUsage };
   } catch (error) {
     if (options.signal?.aborted) {
       throw error;
@@ -6955,12 +6748,12 @@ var registerModelCommands = (runtime) => {
         ctx.ui.notify("Select a chat model before configuring Advisor", "error");
         return;
       }
-      const currentModelRef2 = `${ctx.model.provider}/${ctx.model.id}`;
+      const currentModelRef = `${ctx.model.provider}/${ctx.model.id}`;
       const selection = await selectAdvisorModels(ctx, {
         advisor: advisorRef,
         advisorEffort: advisorEffortRef,
         advisorFallbackModel: advisorFallbackModelRef,
-        executor: currentModelRef2,
+        executor: currentModelRef,
         executorEffort: undefined,
         selectAdvisor: true,
         selectExecutor: false
@@ -6997,9 +6790,9 @@ import {
   unlink,
   writeFile
 } from "node:fs/promises";
-import { join as join7 } from "node:path";
+import { join as join6 } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { getAgentDir as getAgentDir6 } from "@earendil-works/pi-coding-agent";
+import { getAgentDir as getAgentDir5 } from "@earendil-works/pi-coding-agent";
 var ADOPTIONS = [
   "followed",
   "not-followed",
@@ -7019,12 +6812,12 @@ var OUTCOME_TRIGGERS = [
 ];
 var MAX_LOG_BYTES = 1024 * 1024;
 var OUTCOME_LOG_MAX_BYTES = MAX_LOG_BYTES;
-var statePath = () => join7(getAgentDir6(), "advisor-outcomes-salt");
-var outcomeLogPath = () => join7(getAgentDir6(), "advisor-outcomes.jsonl");
+var statePath = () => join6(getAgentDir5(), "advisor-outcomes-salt");
+var outcomeLogPath = () => join6(getAgentDir5(), "advisor-outcomes.jsonl");
 var isErrnoException = (error) => error instanceof Error && ("code" in error);
 var salt = async () => {
   const path = statePath();
-  await mkdir(getAgentDir6(), { mode: 448, recursive: true });
+  await mkdir(getAgentDir5(), { mode: 448, recursive: true });
   for (let attempt = 0;attempt < 20; attempt += 1) {
     try {
       const existing = await readFile(path);
@@ -7101,7 +6894,7 @@ var withOutcomeLock = async (run) => {
 var adviceDigest = (advice, key) => createHmac("sha256", key).update(advice).digest("hex").slice(0, 16);
 var appendOutcome = async (record) => {
   const path = outcomeLogPath();
-  await mkdir(getAgentDir6(), { mode: 448, recursive: true });
+  await mkdir(getAgentDir5(), { mode: 448, recursive: true });
   return withOutcomeLock(async () => {
     const next = {
       adoption: record.adoption,
@@ -7224,12 +7017,12 @@ var formatAdvisorStats = ({
 ${error}`;
   }
   if (!stats || stats.total === 0) {
-    const ignored2 = malformedLines ? `
+    const ignored = malformedLines ? `
 
 Ignored ${malformedLines} malformed ledger line${malformedLines === 1 ? "" : "s"}.` : "";
     return `**No Advisor outcomes recorded yet.**
 
-Enable outcome logging and record an outcome after an Advisor response to build this report.${ignored2}`;
+Enable outcome logging and record an outcome after an Advisor response to build this report.${ignored}`;
   }
   const { validationByAdoption } = stats;
   const { followed } = validationByAdoption;
@@ -7488,757 +7281,11 @@ var rainbowGradient = (text, startedAt) => {
 // src/ui/settings-items.ts
 import { getKeybindings } from "@earendil-works/pi-tui";
 
-// src/ui/jev-setup-submenu.ts
-import { Key as Key2, matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
-
-// src/ui/jev-setup-submenu-view.ts
-import { truncateToWidth as truncateToWidth4 } from "@earendil-works/pi-tui";
-
-// node_modules/@typesafe-ai/sdk/dist/index.mjs
-var requestIdFrom = (headers) => headers.get("x-typesafe-request-id") ?? undefined;
-var APIPromise = class APIPromise2 extends Promise {
-  #responsePromise;
-  #parseResponse;
-  #parsed;
-  constructor(responsePromise, parseResponse) {
-    super((resolve4) => resolve4(undefined));
-    this.#responsePromise = responsePromise;
-    this.#parseResponse = parseResponse;
-  }
-  asResponse() {
-    return this.#responsePromise;
-  }
-  async withResponse() {
-    const [data, response] = await Promise.all([this.#parse(), this.#responsePromise]);
-    return {
-      data,
-      response,
-      requestId: requestIdFrom(response.headers)
-    };
-  }
-  map(fn) {
-    return new APIPromise2(this.#responsePromise, () => this.#parse().then(fn));
-  }
-  #parse() {
-    this.#parsed ??= this.#responsePromise.then(this.#parseResponse);
-    return this.#parsed;
-  }
-  then(onfulfilled, onrejected) {
-    return this.#parse().then(onfulfilled, onrejected);
-  }
-  catch(onrejected) {
-    return this.#parse().catch(onrejected);
-  }
-  finally(onfinally) {
-    return this.#parse().finally(onfinally);
-  }
-};
-var ENV = {
-  apiKey: "TYPESAFE_API_KEY",
-  baseURL: "TYPESAFE_BASE_URL",
-  defaultModel: "TYPESAFE_DEFAULT_MODEL",
-  logLevel: "TYPESAFE_LOG_LEVEL"
-};
-var readEnv = (name) => {
-  if (typeof process === "undefined" || !process.env)
-    return;
-  return process.env[name]?.trim() || undefined;
-};
-var fromCodeOrEnv = (fromCode, envVar) => fromCode ?? readEnv(envVar);
-var range2 = (from, to) => Array.from({ length: to - from }, (_, i) => from + i);
-var DEFAULT_RETRY_POLICY = {
-  maxRetries: 2,
-  backoffInitialMs: 500,
-  backoffMaxMs: 5000,
-  backoffJitter: 0.25,
-  httpStatuses: /* @__PURE__ */ new Set([
-    408,
-    429,
-    ...range2(500, 600)
-  ]),
-  respectRetryAfter: true,
-  maxRetryAfterMs: 60000,
-  apiConnectionError: true,
-  apiTimeoutError: true
-};
-DEFAULT_RETRY_POLICY.maxRetries;
-var isRetryableStatus = (status, policy = DEFAULT_RETRY_POLICY) => policy.httpStatuses.has(status);
-var parseRetryAfter = (headers, now = Date.now()) => {
-  const ms = Number(headers.get("retry-after-ms"));
-  if (headers.has("retry-after-ms") && Number.isFinite(ms) && ms >= 0)
-    return ms;
-  const raw = headers.get("retry-after");
-  if (raw === null)
-    return;
-  const seconds = Number(raw);
-  if (Number.isFinite(seconds))
-    return seconds >= 0 ? seconds * 1000 : undefined;
-  const date = Date.parse(raw);
-  if (!Number.isNaN(date))
-    return Math.max(0, date - now);
-};
-var retryDelayMs = (attempt, headers, policy = DEFAULT_RETRY_POLICY, random = Math.random) => {
-  if (policy.respectRetryAfter && headers !== undefined) {
-    const retryAfter = parseRetryAfter(headers);
-    if (retryAfter !== undefined && retryAfter <= policy.maxRetryAfterMs)
-      return retryAfter;
-  }
-  const exponential = Math.min(policy.backoffInitialMs * 2 ** attempt, policy.backoffMaxMs);
-  return Math.round(exponential * (1 - random() * policy.backoffJitter));
-};
-var sleep2 = (ms, signal) => new Promise((resolve4, reject) => {
-  if (signal?.aborted)
-    return reject(signal.reason);
-  const onAbort = () => {
-    clearTimeout(timer);
-    reject(signal?.reason);
-  };
-  const timer = setTimeout(() => {
-    signal?.removeEventListener("abort", onAbort);
-    resolve4();
-  }, ms);
-  signal?.addEventListener("abort", onAbort, { once: true });
-});
-var TypeSafeError = class extends Error {
-  constructor(message, options) {
-    super(message, options);
-    this.name = new.target.name;
-  }
-};
-var isRecord2 = (value) => typeof value === "object" && value !== null;
-var extractMessage = (body) => {
-  if (typeof body === "string")
-    return body || undefined;
-  if (!isRecord2(body))
-    return;
-  const { error, message, detail } = body;
-  if (typeof error === "string")
-    return error;
-  if (isRecord2(error) && typeof error.message === "string")
-    return error.message;
-  if (typeof message === "string")
-    return message;
-  if (typeof detail === "string")
-    return detail;
-  if (isRecord2(detail) && typeof detail.message === "string")
-    return detail.message;
-  if (Array.isArray(detail))
-    return describeValidationErrors(detail);
-};
-var describeValidationErrors = (errors) => {
-  const parts = errors.flatMap((e) => {
-    if (!isRecord2(e) || typeof e.msg !== "string")
-      return [];
-    const loc = Array.isArray(e.loc) ? e.loc.filter((x) => x !== "body").join(".") : "";
-    return [loc ? `${loc}: ${e.msg}` : e.msg];
-  });
-  return parts.length > 0 ? parts.join("; ") : undefined;
-};
-var MAX_RAW_BODY_IN_MESSAGE = 200;
-var APIError = class APIError2 extends TypeSafeError {
-  status;
-  headers;
-  body;
-  requestId;
-  constructor(status, body, headers, message) {
-    super(message ?? APIError2.describe(status, body));
-    this.status = status;
-    this.body = body;
-    this.headers = headers;
-    this.requestId = requestIdFrom(headers);
-  }
-  static describe(status, body) {
-    const detail = extractMessage(body);
-    if (detail)
-      return `${status} ${detail}`;
-    if (body === undefined)
-      return `${status} status code (no body)`;
-    const raw = typeof body === "string" ? body : JSON.stringify(body);
-    return `${status} ${raw.length > MAX_RAW_BODY_IN_MESSAGE ? `${raw.slice(0, MAX_RAW_BODY_IN_MESSAGE)}…` : raw}`;
-  }
-  static fromResponse(status, body, headers) {
-    if (status === 400)
-      return new BadRequestError(status, body, headers);
-    if (status === 401)
-      return new AuthenticationError(status, body, headers);
-    if (status === 403)
-      return new PermissionDeniedError(status, body, headers);
-    if (status === 404)
-      return new NotFoundError(status, body, headers);
-    if (status === 422)
-      return new UnprocessableEntityError(status, body, headers);
-    if (status === 429)
-      return new RateLimitError(status, body, headers);
-    if (status >= 500)
-      return new InternalServerError(status, body, headers);
-    return new APIError2(status, body, headers);
-  }
-};
-var BadRequestError = class extends APIError {
-};
-var AuthenticationError = class extends APIError {
-};
-var PermissionDeniedError = class extends APIError {
-};
-var NotFoundError = class extends APIError {
-};
-var UnprocessableEntityError = class extends APIError {
-};
-var RateLimitError = class extends APIError {
-  retryAfterMs = parseRetryAfter(this.headers);
-};
-var InternalServerError = class extends APIError {
-};
-var APIConnectionError = class extends TypeSafeError {
-  constructor(message = "Connection error.", options) {
-    super(message, options);
-  }
-};
-var APITimeoutError = class extends APIConnectionError {
-  timeoutMs;
-  constructor(timeoutMs, options) {
-    super(`Request timed out after ${timeoutMs}ms.`, options);
-    this.timeoutMs = timeoutMs;
-  }
-};
-var APIUserAbortError = class extends TypeSafeError {
-  constructor(message = "Request was aborted.", options) {
-    super(message, options);
-  }
-};
-var LOG_LEVELS = [
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "off"
-];
-var DEFAULT_LOG_LEVEL = "warn";
-var isLogLevel = (value) => LOG_LEVELS.includes(value);
-var parseLogLevel = (value, source) => {
-  if (isLogLevel(value))
-    return value;
-  throw new TypeSafeError(`Invalid log level "${value}" from ${source}. Expected one of: ${LOG_LEVELS.join(", ")}.`);
-};
-var PREFIX = "[typesafe-sdk]";
-var consoleLogger = {
-  debug: (message, ...args) => console.debug(`${PREFIX} ${message}`, ...args),
-  info: (message, ...args) => console.info(`${PREFIX} ${message}`, ...args),
-  warn: (message, ...args) => console.warn(`${PREFIX} ${message}`, ...args),
-  error: (message, ...args) => console.error(`${PREFIX} ${message}`, ...args)
-};
-var RANK = {
-  debug: 0,
-  info: 1,
-  warn: 2,
-  error: 3,
-  off: 4
-};
-var drop = () => {};
-var withLevel = (sink, level) => {
-  const enabled = (at) => RANK[at] >= RANK[level];
-  return {
-    debug: enabled("debug") ? (message, ...args) => sink.debug(message, ...args) : drop,
-    info: enabled("info") ? (message, ...args) => sink.info(message, ...args) : drop,
-    warn: enabled("warn") ? (message, ...args) => sink.warn(message, ...args) : drop,
-    error: enabled("error") ? (message, ...args) => sink.error(message, ...args) : drop
-  };
-};
-var KEY_HEADERS = /* @__PURE__ */ new Set([
-  "authorization",
-  "proxy-authorization",
-  "x-api-key"
-]);
-var OPAQUE_HEADERS = /* @__PURE__ */ new Set(["cookie", "set-cookie"]);
-var redactKey = (value) => {
-  const [scheme, secret] = value.includes(" ") ? value.split(/\s+/, 2) : [undefined, value];
-  const tail = secret && secret.length > 8 ? secret.slice(-4) : "";
-  return `${scheme ? `${scheme} ` : ""}***${tail}`;
-};
-var redact = (name, value) => {
-  const lower = name.toLowerCase();
-  if (KEY_HEADERS.has(lower))
-    return redactKey(value);
-  if (OPAQUE_HEADERS.has(lower))
-    return "***";
-  return value;
-};
-var redactHeaders = (headers) => Object.fromEntries(Object.entries(headers).map(([name, value]) => [name, redact(name, value)]));
-var noul = (instructions = null, criteria) => ({
-  type: "noul",
-  instructions,
-  criteria
-});
-var validateQuestions = (questions) => {
-  if (Object.keys(questions).length === 0)
-    throw new TypeSafeError("At least one question is required.");
-  for (const [name, question] of Object.entries(questions)) {
-    if (question.type !== "score")
-      continue;
-    if (!Array.isArray(question.criteria))
-      throw new TypeSafeError(`Score question "${name}" has criteria that are not a list; score criteria must be a list of descriptions indexed by score from zero.`);
-    if (question.criteria.length < 2)
-      throw new TypeSafeError(`Score question "${name}" has ${question.criteria.length} criteria; at least two scores are required.`);
-  }
-};
-var Models = class {
-  #transport;
-  constructor(transport) {
-    this.#transport = transport;
-  }
-  list(options = {}) {
-    return this.#transport.request("GET", "/v1/models", options).map(unwrapModels);
-  }
-};
-var unwrapModels = (wire) => {
-  if (Array.isArray(wire?.models))
-    return wire.models;
-  throw new TypeSafeError("Unexpected response shape from GET /v1/models; expected { models: [...] }.");
-};
-var g = globalThis;
-var isBrowser = () => typeof g.window !== "undefined" && typeof g.window.document !== "undefined" && typeof g.navigator !== "undefined";
-var describeRuntime = () => {
-  const platform = g.process?.platform && g.process?.arch ? ` (${g.process.platform}; ${g.process.arch})` : "";
-  if (g.Bun?.version)
-    return `bun/${g.Bun.version}${platform}`;
-  if (g.Deno?.version?.deno)
-    return `deno/${g.Deno.version.deno}${platform}`;
-  if (g.EdgeRuntime !== undefined)
-    return "vercel-edge";
-  if (g.navigator?.userAgent === "Cloudflare-Workers")
-    return "cloudflare-workers";
-  if (g.process?.versions?.node)
-    return `node/${g.process.versions.node}${platform}`;
-  if (isBrowser())
-    return "browser";
-  return "unknown";
-};
-var VERSION = "0.6.0";
-var missingApiKey = () => {
-  throw new TypeSafeError(`No API key was provided. Pass \`apiKey\` to the TypeSafeClient constructor or set the ${ENV.apiKey} environment variable.`);
-};
-var missingFetch = () => {
-  throw new TypeSafeError("No global `fetch` is available in this runtime. Pass a `fetch` implementation to the TypeSafeClient constructor.");
-};
-var refuseBrowser = () => {
-  throw new TypeSafeError("TypeSafeClient is running in a browser, which would expose your API key to anyone using the page. Call the API from a server instead, or pass `dangerouslyAllowBrowser: true` if you understand the risk.");
-};
-var defaultFetch = (input, init) => globalThis.fetch(input, init);
-var assertNonNegativeInteger = (name, value) => {
-  if (!Number.isInteger(value) || value < 0)
-    throw new TypeSafeError(`\`${name}\` must be a non-negative integer, got ${String(value)}.`);
-  return value;
-};
-var assertPositiveMs = (name, value) => {
-  if (!Number.isFinite(value) || value <= 0)
-    throw new TypeSafeError(`\`${name}\` must be a positive number of milliseconds, got ${String(value)}.`);
-  return value;
-};
-var assertNonNegativeMs = (name, value) => {
-  if (!Number.isFinite(value) || value < 0)
-    throw new TypeSafeError(`\`${name}\` must be a non-negative number of milliseconds, got ${String(value)}.`);
-  return value;
-};
-var assertFraction = (name, value) => {
-  if (!Number.isFinite(value) || value < 0 || value > 1)
-    throw new TypeSafeError(`\`${name}\` must be between 0 and 1, got ${String(value)}.`);
-  return value;
-};
-var assertStatusSet = (name, statuses) => {
-  for (const status of statuses)
-    if (!Number.isInteger(status) || status < 100 || status > 999)
-      throw new TypeSafeError(`\`${name}\` must contain HTTP status codes, got ${String(status)}.`);
-  return statuses;
-};
-var resolveRetryPolicy = (base, overrides) => {
-  const o = overrides ?? {};
-  return {
-    maxRetries: o.maxRetries === undefined ? base.maxRetries : assertNonNegativeInteger("retry.maxRetries", o.maxRetries),
-    backoffInitialMs: o.backoffInitialMs === undefined ? base.backoffInitialMs : assertNonNegativeMs("retry.backoffInitialMs", o.backoffInitialMs),
-    backoffMaxMs: o.backoffMaxMs === undefined ? base.backoffMaxMs : assertNonNegativeMs("retry.backoffMaxMs", o.backoffMaxMs),
-    backoffJitter: o.backoffJitter === undefined ? base.backoffJitter : assertFraction("retry.backoffJitter", o.backoffJitter),
-    httpStatuses: new Set(o.httpStatuses === undefined ? base.httpStatuses : assertStatusSet("retry.httpStatuses", o.httpStatuses)),
-    respectRetryAfter: o.respectRetryAfter ?? base.respectRetryAfter,
-    maxRetryAfterMs: o.maxRetryAfterMs === undefined ? base.maxRetryAfterMs : assertNonNegativeMs("retry.maxRetryAfterMs", o.maxRetryAfterMs),
-    apiConnectionError: o.apiConnectionError ?? base.apiConnectionError,
-    apiTimeoutError: o.apiTimeoutError ?? base.apiTimeoutError
-  };
-};
-var isRetryableError = (err, policy) => {
-  if (err instanceof APITimeoutError)
-    return policy.apiTimeoutError;
-  if (err instanceof APIConnectionError)
-    return policy.apiConnectionError;
-  return false;
-};
-var resolveLogLevel = (fromCode) => {
-  if (fromCode !== undefined)
-    return parseLogLevel(fromCode, "the `logLevel` option");
-  const fromEnv = readEnv(ENV.logLevel);
-  if (fromEnv !== undefined)
-    return parseLogLevel(fromEnv, ENV.logLevel);
-  return DEFAULT_LOG_LEVEL;
-};
-var stripTrailingSlashes = (url) => url.replace(/\/+$/, "");
-var mergeHeaders = (...sources) => {
-  const entries = /* @__PURE__ */ new Map;
-  for (const source of sources)
-    for (const [name, value] of Object.entries(source))
-      if (value === undefined)
-        entries.delete(name.toLowerCase());
-      else
-        entries.set(name.toLowerCase(), [name, value]);
-  return Object.fromEntries(entries.values());
-};
-var bufferResponse = async (response, signal) => {
-  const reader = response.clone().body?.getReader();
-  if (!reader)
-    return;
-  const cancel = () => {
-    reader.cancel(signal.reason).catch(() => {});
-    response.body?.cancel(signal.reason).catch(() => {});
-  };
-  signal.addEventListener("abort", cancel, { once: true });
-  try {
-    if (signal.aborted)
-      cancel();
-    signal.throwIfAborted();
-    while (!(await reader.read()).done)
-      signal.throwIfAborted();
-    signal.throwIfAborted();
-  } finally {
-    signal.removeEventListener("abort", cancel);
-    reader.releaseLock();
-  }
-};
-var RUNTIME = describeRuntime();
-var TypeSafeClient = class {
-  #apiKey;
-  baseURL;
-  defaultModel;
-  logLevel;
-  logger;
-  retry;
-  timeout;
-  defaultHeaders;
-  fetch;
-  models;
-  #requestCount = 0;
-  constructor(config = {}) {
-    if (isBrowser() && !config.dangerouslyAllowBrowser)
-      refuseBrowser();
-    this.#apiKey = fromCodeOrEnv(config.apiKey, ENV.apiKey) ?? missingApiKey();
-    this.baseURL = stripTrailingSlashes(fromCodeOrEnv(config.baseURL, ENV.baseURL) ?? "https://api.typesafe.ai");
-    this.defaultModel = fromCodeOrEnv(config.defaultModel, ENV.defaultModel) ?? "jev-latest";
-    this.logLevel = resolveLogLevel(config.logLevel);
-    this.logger = withLevel(config.logger ?? consoleLogger, this.logLevel);
-    this.retry = resolveRetryPolicy(DEFAULT_RETRY_POLICY, config.retry);
-    this.timeout = assertPositiveMs("timeout", config.timeout ?? 1e4);
-    this.defaultHeaders = { ...config.defaultHeaders };
-    if (config.fetch === undefined && typeof globalThis.fetch !== "function")
-      missingFetch();
-    this.fetch = config.fetch ?? defaultFetch;
-    const transport = {
-      request: (method, path, options) => this.#request(method, path, options),
-      defaultModel: this.defaultModel
-    };
-    this.models = new Models(transport);
-  }
-  systemOne(request, options = {}) {
-    validateQuestions(request.questions);
-    const body = {
-      ...request,
-      model: request.model ?? this.defaultModel
-    };
-    return this.#request("POST", "/v1/systemone", {
-      ...options,
-      body
-    });
-  }
-  #request(method, path, options = {}) {
-    const resolved = {
-      method,
-      path,
-      body: options.body,
-      headers: mergeHeaders(this.defaultHeaders, options.headers ?? {}),
-      signal: options.signal,
-      timeout: options.timeout === undefined ? this.timeout : assertPositiveMs("timeout", options.timeout),
-      retry: resolveRetryPolicy(this.retry, options.retry)
-    };
-    const tag = `#${++this.#requestCount} ${method} ${path}`;
-    return new APIPromise(this.fetchWithRetries(tag, resolved), async (res) => {
-      const parsed = await parseBody(res);
-      this.logger.debug(`${tag} <- body`, parsed);
-      return parsed;
-    });
-  }
-  async fetchWithRetries(tag, req) {
-    const url = `${this.baseURL}${req.path}`;
-    const headers = mergeHeaders(req.headers, {
-      Authorization: `Bearer ${this.#apiKey}`,
-      Accept: "application/json",
-      "User-Agent": `typesafe-sdk/${VERSION}`,
-      "X-TypeSafe-SDK": `typesafe-sdk/${VERSION}`,
-      "X-TypeSafe-Runtime": RUNTIME,
-      "Content-Type": req.body === undefined ? undefined : "application/json",
-      "X-TypeSafe-Retry-Count": undefined
-    });
-    const body = req.body === undefined ? undefined : JSON.stringify(req.body);
-    for (let attempt = 0;; attempt++) {
-      const retriesLeft = req.retry.maxRetries - attempt;
-      const attemptHeaders = attempt === 0 ? headers : {
-        ...headers,
-        "X-TypeSafe-Retry-Count": String(attempt)
-      };
-      this.logger.debug(`${tag} -> ${url}`, {
-        headers: redactHeaders(attemptHeaders),
-        body: req.body
-      });
-      const started = Date.now();
-      let res;
-      try {
-        res = await this.attempt(tag, url, {
-          method: req.method,
-          headers: attemptHeaders,
-          body
-        }, req);
-      } catch (err) {
-        if (err instanceof APIUserAbortError || retriesLeft <= 0)
-          throw err;
-        if (!isRetryableError(err, req.retry))
-          throw err;
-        await this.backOff(tag, attempt, retriesLeft, err.message, undefined, req);
-        continue;
-      }
-      const requestId = requestIdFrom(res.headers);
-      this.logger.info(`${tag} <- ${res.status} in ${Date.now() - started}ms${requestId ? ` (request ${requestId})` : ""}`);
-      if (res.ok)
-        return res;
-      const errorBody = await parseBody(res);
-      this.logger.debug(`${tag} <- error body`, errorBody);
-      const error = APIError.fromResponse(res.status, errorBody, res.headers);
-      if (retriesLeft <= 0 || !isRetryableStatus(res.status, req.retry))
-        throw error;
-      await this.backOff(tag, attempt, retriesLeft, `${res.status}`, res.headers, req);
-    }
-  }
-  async attempt(tag, url, init, { signal, timeout }) {
-    const controller = new AbortController;
-    const abortFromCaller = () => controller.abort(signal?.reason);
-    if (signal?.aborted)
-      abortFromCaller();
-    signal?.addEventListener("abort", abortFromCaller, { once: true });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeout);
-    const started = Date.now();
-    const elapsed = () => `${Date.now() - started}ms`;
-    try {
-      const response = await this.fetch(url, {
-        ...init,
-        signal: controller.signal
-      });
-      await bufferResponse(response, controller.signal);
-      return response;
-    } catch (err) {
-      if (signal?.aborted) {
-        this.logger.info(`${tag} aborted by caller after ${elapsed()}`);
-        throw new APIUserAbortError(undefined, { cause: err });
-      }
-      if (timedOut) {
-        this.logger.info(`${tag} timed out after ${elapsed()}`);
-        throw new APITimeoutError(timeout, { cause: err });
-      }
-      this.logger.info(`${tag} connection error after ${elapsed()}`, err);
-      throw new APIConnectionError(err instanceof Error ? `Connection error: ${err.message}` : undefined, { cause: err });
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abortFromCaller);
-    }
-  }
-  async backOff(tag, attempt, retriesLeft, reason, headers, { retry, signal }) {
-    const delay = retryDelayMs(attempt, headers, retry);
-    const nth = attempt + 1;
-    const total = attempt + retriesLeft;
-    this.logger.info(`${tag} retrying in ${delay}ms (retry ${nth}/${total}) after ${reason}`);
-    try {
-      await sleep2(delay, signal);
-    } catch (err) {
-      this.logger.info(`${tag} aborted by caller while waiting to retry`);
-      throw new APIUserAbortError(undefined, { cause: err });
-    }
-  }
-};
-var parseBody = async (res) => {
-  const text = await res.text();
-  if (text.length === 0)
-    return;
-  if ((res.headers.get("content-type") ?? "").includes("application/json"))
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text;
-    }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-};
-
-// src/ui/jev-setup-support.ts
-var fireAndForget = async (action, onError) => {
-  try {
-    await action;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    onError(redactSecrets(message));
-  }
-};
-var providerName = (transport) => {
-  if (transport === "typesafe") {
-    return "TypeSafe Jev";
-  }
-  if (transport === "openrouter") {
-    return "OpenRouter (Pi login)";
-  }
-  return `OpenAI Decisions (${OPENAI_DECISIONS_MODEL})`;
-};
-var transportLabel = (credentials) => {
-  if (credentials.transport === "openrouter") {
-    return "OpenRouter (reusing Pi login)";
-  }
-  if (credentials.transport === "openai-decisions") {
-    let source = "verified API key";
-    switch (credentials.source) {
-      case "openai-bun-secrets": {
-        source = "Bun.secrets";
-        break;
-      }
-      case "openai-env": {
-        source = "OPENAI_API_KEY";
-        break;
-      }
-      case "openai-file": {
-        source = "stored file, mode 0600";
-        break;
-      }
-      case "openai-provider-credential": {
-        source = "Pi stored API key";
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-    return `OpenAI Decisions (${OPENAI_DECISIONS_MODEL}; key: ${source})`;
-  }
-  switch (credentials.source) {
-    case "advisor-json": {
-      return "TypeSafe (key: advisor.json — plaintext, not recommended)";
-    }
-    case "bun-secrets": {
-      return "TypeSafe (key: Bun.secrets)";
-    }
-    case "file": {
-      return "TypeSafe (key: stored file, mode 0600)";
-    }
-    default: {
-      return "TypeSafe (key: TYPESAFE_API_KEY)";
-    }
-  }
-};
-var canClearCredential = (credentials) => credentials.source === "bun-secrets" || credentials.source === "file" || credentials.source === "openai-bun-secrets" || credentials.source === "openai-file";
-var canReplaceWithEnteredKey = (credentials) => credentials.transport === "typesafe" || credentials.transport === "openai-decisions" && (credentials.source === "openai-bun-secrets" || credentials.source === "openai-file");
-var defaultVerify = async (credentials) => {
-  const client = jevClientFromCredentials(credentials);
-  try {
-    await client.ask({ purpose: "pi-advisor setup verification" }, { verified: noul("Answer yes.") });
-    return { ok: true };
-  } catch (error) {
-    return {
-      message: error instanceof Error ? error.message : String(error),
-      ok: false
-    };
-  }
-};
-var defaultSetupDeps = {
-  clearStoredKey: (transport) => transport === "openai-decisions" ? clearOpenAIDecisionsKey() : clearKeyTypeSafeKey(),
-  removePlaintextKey: removeTypeSafeKeyFromAdvisorJson,
-  resolveTransport: (transport) => transport ? resolveJevTransportFor(transport) : resolveJevTransport(),
-  verify: defaultVerify,
-  writeKey: (key, transport) => transport === "openai-decisions" ? writeOpenAIDecisionsKey(key) : writeKeyTypeSafeKey(key)
-};
-
-// src/ui/jev-setup-submenu-view.ts
-var setupActions = (state) => {
-  const actions = ["typesafe", "openrouter", "openai-decisions"];
-  if (state.canEnterKey) {
-    actions.push("enter-key");
-  }
-  if (state.filterEnabled) {
-    actions.push("disable");
-  }
-  if (state.credentials && canClearCredential(state.credentials)) {
-    actions.push("clear-stored-key");
-  }
-  actions.push("done");
-  return actions;
-};
-var setupLabels = (state) => setupActions(state).map((action) => {
-  if (action === "clear-stored-key") {
-    return state.filterEnabled ? "Disable and clear stored key" : "Clear stored key";
-  }
-  if (action === "disable") {
-    return "Disable";
-  }
-  if (action === "done") {
-    return "Done";
-  }
-  if (action === "enter-key") {
-    return state.selectedTransport === "openai-decisions" ? "Enter an OpenAI Platform API key" : "Enter a TypeSafe API key";
-  }
-  return providerName(action);
-});
-var renderJevSetup = (options, state, maskedInput, width) => {
-  const { theme } = options;
-  const lines = [
-    theme.fg("accent", theme.bold("  Jev/Decisions consultation filter")),
-    "",
-    `  Filter: ${state.filterEnabled ? "On" : "Off"}`
-  ];
-  if (state.credentials) {
-    lines.push(`  Credential: ${transportLabel(state.credentials)}`);
-  } else if (state.selectedTransport) {
-    lines.push(`  Selected provider: ${providerName(state.selectedTransport)}`);
-  } else {
-    lines.push(`  Saved transport: ${options.currentTransport}`);
-  }
-  if (state.notice) {
-    lines.push("", theme.fg("warning", `  ${state.notice}`));
-  }
-  lines.push("");
-  if (state.mode === "resolving") {
-    lines.push("  Checking the selected provider credentials…");
-  } else if (state.mode === "verifying") {
-    lines.push("  Verifying with a live Jev call…");
-  } else if (state.mode === "clearing") {
-    lines.push("  Clearing the selected provider's stored key…");
-  } else if (state.mode === "key-entry") {
-    lines.push(`  ${providerName(state.selectedTransport ?? "typesafe")}`, state.selectedTransport === "openai-decisions" ? "  No OpenAI Platform API key found. ChatGPT subscription OAuth is not accepted." : "  No TypeSafe API key found.", `  ${maskedInput.render(Math.max(10, width - 4))[0] ?? ""}`, theme.fg("dim", "  Enter: verify and securely store · Esc: return"));
-  } else {
-    for (const [index, label] of setupLabels(state).entries()) {
-      const prefix = index === state.selectedIndex ? "→ " : "  ";
-      lines.push(`${prefix}${label}`);
-    }
-  }
-  return lines.map((line) => truncateToWidth4(line, width));
-};
+// src/ui/jev-classifier-submenu.ts
+import { Input as Input3, Key as Key2, matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 
 // src/ui/masked-input.ts
-import { Input as Input2, truncateToWidth as truncateToWidth5 } from "@earendil-works/pi-tui";
+import { Input as Input2, truncateToWidth as truncateToWidth4 } from "@earendil-works/pi-tui";
 
 class MaskedInput {
   input;
@@ -8275,285 +7322,416 @@ class MaskedInput {
     const { cursor } = this.input;
     const masked = `${"•".repeat(Math.min(cursor, value.length))}█${"•".repeat(Math.max(0, value.length - cursor))}`;
     const placeholder = value.length === 0 && this.options.placeholder ? this.options.placeholder : masked;
-    return [truncateToWidth5(placeholder, Math.max(1, width))];
+    return [truncateToWidth4(placeholder, Math.max(1, width))];
   }
 }
 
-// src/ui/jev-setup-submenu.ts
-class JevSetupSubmenu {
+// src/ui/jev-classifier-submenu.ts
+class JevClassifierSubmenu {
   options;
-  deps;
-  maskedInput;
-  credentials;
-  selectedTransport;
-  mode = "menu";
-  notice;
+  search = new Input3;
+  loaded = Promise.withResolvers();
+  keyInput;
+  choices = [];
+  filtered = [];
   selectedIndex = 0;
-  filterEnabled;
-  canEnterKey = false;
-  pendingSelectionRefresh = false;
+  mode = "loading";
+  notice;
+  failClosedKeyMode = false;
   _focused = true;
-  constructor(options, deps = {}) {
+  constructor(options) {
     this.options = options;
-    this.filterEnabled = options.currentValue === "On";
-    this.deps = { ...defaultSetupDeps, ...options.setupDeps, ...deps };
-    this.maskedInput = this.createMaskedInput("Paste a TypeSafe API key");
-    fireAndForget(this.refresh(), this.reportBackgroundError);
+    this.search.focused = true;
+    this.loadChoices();
   }
   get focused() {
     return this._focused;
   }
   set focused(value) {
     this._focused = value;
-    this.maskedInput.focused = value;
+    this.search.focused = value;
   }
   invalidate() {
-    this.maskedInput.invalidate();
+    this.search.invalidate();
   }
-  handleInput(keyData) {
-    if (this.mode === "key-entry") {
-      this.maskedInput.handleInput(keyData);
+  render(width) {
+    const { theme } = this.options;
+    const border = theme.fg("border", "─".repeat(Math.max(1, width)));
+    if (this.mode === "key") {
+      return [
+        border,
+        theme.fg("accent", theme.bold("Jev API Key")),
+        "",
+        this.notice ?? "Enter a new TypeSafe Jev API key:",
+        `  ${this.keyInput?.render(Math.max(1, width - 4))[0] ?? ""}`,
+        "",
+        this.failClosedKeyMode ? "Key restore failed. Re-enter and verify a valid Jev key." : "Enter to verify · Esc to cancel",
+        border
+      ];
+    }
+    const query = this.search.getValue().trim().toLowerCase();
+    const filteredChoices = this.choices.filter((choice) => choice.label.toLowerCase().includes(query));
+    this.filtered = filteredChoices;
+    const rows = this.filtered.map((choice, index) => `${index === this.selectedIndex ? "›" : " "} ${choice.label}`);
+    return [
+      border,
+      theme.fg("accent", theme.bold("Jev classifier")),
+      "",
+      this.mode === "loading" ? "Loading Pi classifier catalog…" : `Search: ${this.search.render(Math.max(1, width - 10))[0]}`,
+      ...this.notice ? [this.notice] : [],
+      ...rows.slice(0, 10),
+      "",
+      "↑/↓ move · Enter select · Esc cancel",
+      border
+    ];
+  }
+  handleInput(data) {
+    if (this.mode === "key") {
+      this.keyInput?.handleInput(data);
       this.options.tui.requestRender();
       return;
     }
+    if (this.mode !== "list") {
+      return;
+    }
+    if (data === "\x1B[B" || matchesKey2(data, Key2.down)) {
+      if (this.selectedIndex + 1 < this.filtered.length) {
+        this.selectedIndex += 1;
+      }
+    } else if (data === "\x1B[A" || matchesKey2(data, Key2.up)) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+    } else if (matchesKey2(data, Key2.escape) || data === "\x1B") {
+      this.options.done();
+      return;
+    } else if (matchesKey2(data, Key2.enter) || data === "\r") {
+      const selected = this.filtered[this.selectedIndex];
+      if (selected) {
+        this.choose(selected);
+      }
+    } else {
+      this.search.handleInput(data);
+      this.selectedIndex = 0;
+    }
+    this.options.tui.requestRender();
+  }
+  async loadChoices() {
+    try {
+      if (!this.options.modelRegistry) {
+        throw new Error("Pi classifier registry is unavailable.");
+      }
+      const models = await this.options.modelRegistry.getAvailableOfType("classifier");
+      this.choices = (models ?? []).map((model) => ({
+        action: "classifier",
+        label: `${this.options.modelRegistry?.getProviderDisplayName(model.provider) ?? model.provider} / ${model.id} (${JevClassifierSubmenu.rates(model)})`,
+        model,
+        ref: `${model.provider}/${model.id}`
+      }));
+      const stored = await (this.options.resolveStoredKey ?? readJevClassifierKey)();
+      if (stored.key) {
+        this.choices.push({
+          action: "use-key",
+          label: "Jev API Key (use stored key)",
+          ref: JEV_API_KEY_CLASSIFIER
+        }, {
+          action: "replace-key",
+          label: "Replace Jev API Key…",
+          ref: JEV_API_KEY_CLASSIFIER
+        });
+      } else {
+        this.choices.push({
+          action: "replace-key",
+          label: "Jev API Key… (enter TypeSafe key)",
+          ref: JEV_API_KEY_CLASSIFIER
+        });
+      }
+      this.mode = "list";
+      this.loaded.resolve(true);
+      this.notice = this.options.currentValue && this.options.currentValue !== "Choose classifier" ? `Current: ${this.options.currentValue}` : undefined;
+    } catch (error) {
+      this.mode = "list";
+      this.loaded.resolve(false);
+      this.notice = `Could not load classifiers: ${error instanceof Error ? error.message : "unknown error"}. Retry /advisor-settings.`;
+    }
+    this.options.tui.requestRender();
+  }
+  whenLoaded() {
+    return this.loaded.promise;
+  }
+  static rates(model) {
+    const rates = model.cost;
+    return rates.input === 0 && rates.output === 0 ? "$0/M tokens" : `$${rates.input}/$${rates.output} per Mtok`;
+  }
+  async choose(choice) {
+    if (choice.action === "use-key") {
+      const stored = await (this.options.resolveStoredKey ?? readJevClassifierKey)();
+      if (stored.key) {
+        await this.verifyStoredKey(stored.key);
+      } else {
+        this.openKeyEntry();
+      }
+      return;
+    }
+    if (choice.action === "replace-key") {
+      this.openKeyEntry();
+      return;
+    }
+    if (!choice.model) {
+      return;
+    }
+    this.mode = "verifying";
+    this.notice = `Verifying ${choice.ref}…`;
+    this.options.tui.requestRender();
+    try {
+      await this.verify(choice.model);
+      const saved = this.save({ classifier: choice.ref, transport: "auto" });
+      if (!saved) {
+        this.mode = "list";
+        this.notice = "Verified, but settings could not be saved.";
+      }
+    } catch (error) {
+      this.notice = `Verification failed for ${choice.ref}: ${error instanceof Error ? error.message : "provider error"}`;
+      this.mode = "list";
+    }
+    this.options.tui.requestRender();
+  }
+  async verify(model, apiKey) {
+    if (!this.options.modelRegistry) {
+      throw new Error("Pi classifier registry is unavailable.");
+    }
+    const state = {
+      recent_conversation: "Classifier verification check.",
+      role: "executor"
+    };
+    const result = await classifyWithJev({ modelRegistry: this.options.modelRegistry, signal: undefined }, `${model.provider}/${model.id}`, state, nativeScreeningQuestions, { apiKey });
+    if (!result.answers.self_answerable || !result.answers.stakes) {
+      throw new Error("Classifier returned an incomplete verification result.");
+    }
+  }
+  async verifyKey() {
+    const candidate = this.keyInput?.getValue().trim() ?? "";
+    this.keyInput?.setValue("");
+    if (!candidate) {
+      this.notice = "Enter a non-empty Jev API key.";
+      this.options.tui.requestRender();
+      return;
+    }
+    const model = this.options.modelRegistry?.findOfType("classifier", "typesafe", "jev-latest");
+    if (!model) {
+      this.notice = "TypeSafe Jev classifier is not present in Pi's catalog.";
+      this.options.tui.requestRender();
+      return;
+    }
+    const previous = await (this.options.resolveStoredKey ?? readJevClassifierKey)();
+    if (previous.failed) {
+      this.mode = "list";
+      this.notice = "Could not read the stored Jev API Key state; nothing was changed. Try again later.";
+      this.options.tui.requestRender();
+      return;
+    }
+    this.mode = "verifying";
+    this.notice = "Verifying Jev API Key…";
+    this.options.tui.requestRender();
+    try {
+      await this.verify(model, candidate);
+      const stored = await (this.options.persistKey ?? writeJevClassifierKey)(candidate);
+      if (!stored.ok) {
+        throw new Error(stored.message);
+      }
+      enableJevClassifierKeyForRuntime();
+      if (!this.save({ classifier: JEV_API_KEY_CLASSIFIER, transport: "auto" })) {
+        if (!await this.restorePreviousKey(previous)) {
+          this.failClosedKeyMode = true;
+          disableJevClassifierKeyForRuntime();
+          throw new Error("Settings save failed and the previous key could not be restored. Re-enter and verify a valid Jev key before continuing.");
+        }
+        throw new Error("Could not save Jev classifier settings; existing key was restored.");
+      }
+      this.mode = "list";
+      this.notice = "Jev API Key verified and saved securely.";
+    } catch (error) {
+      this.mode = "key";
+      this.notice = `Verification failed: ${error instanceof Error ? error.message : "provider error"}`;
+    }
+    this.options.tui.requestRender();
+  }
+  openKeyEntry() {
+    this.mode = "key";
+    this.keyInput = new MaskedInput({
+      onEscape: () => {
+        this.mode = "list";
+        this.keyInput?.setValue("");
+        this.options.tui.requestRender();
+      },
+      onSubmit: () => this.handleKeySubmit(),
+      placeholder: "TypeSafe Jev API key"
+    });
+  }
+  restorePreviousKey(previous) {
+    if (this.options.restoreKey) {
+      return this.options.restoreKey(previous);
+    }
+    return restoreJevClassifierKey(previous);
+  }
+  async verifyStoredKey(key) {
+    const model = this.options.modelRegistry?.findOfType("classifier", "typesafe", "jev-latest");
+    if (!model) {
+      this.notice = "TypeSafe Jev classifier is not present in Pi's catalog.";
+      this.options.tui.requestRender();
+      return;
+    }
+    this.mode = "verifying";
+    this.notice = "Verifying stored Jev API Key…";
+    this.options.tui.requestRender();
+    try {
+      await this.verify(model, key);
+      if (!this.save({ classifier: JEV_API_KEY_CLASSIFIER, transport: "auto" })) {
+        throw new Error("Could not save the Jev classifier selection.");
+      }
+      this.notice = "Stored Jev API Key verified.";
+    } catch (error) {
+      this.mode = "list";
+      this.notice = `Verification failed: ${error instanceof Error ? error.message : "provider error"}`;
+    }
+    this.options.tui.requestRender();
+  }
+  async handleKeySubmit() {
+    try {
+      await this.verifyKey();
+    } catch (error) {
+      this.notice = `Verification failed: ${error instanceof Error ? error.message : "provider error"}`;
+      this.mode = "key";
+      this.options.tui.requestRender();
+    }
+  }
+  save(selection) {
+    const saved = this.options.onSelection?.(selection) ?? false;
+    if (saved) {
+      this.options.done(selection.classifier);
+    } else {
+      this.mode = "list";
+      this.notice = "Verified, but settings could not be saved.";
+    }
+    return saved;
+  }
+}
+
+// src/ui/jev-filter-submenu.ts
+import { Key as Key3, matchesKey as matchesKey3, truncateToWidth as truncateToWidth5 } from "@earendil-works/pi-tui";
+var actionsFor = (enabled) => enabled ? ["disable", "done"] : ["enable", "done"];
+var labelFor2 = (action) => {
+  if (action === "enable") {
+    return "Enable the filter";
+  }
+  return action === "disable" ? "Disable the filter" : "Done";
+};
+
+class JevFilterSubmenu {
+  options;
+  mode = "resolving";
+  notice;
+  selectedIndex = 0;
+  enabled;
+  classifierAvailable = false;
+  modelRegistry;
+  resolveClassifierKey;
+  _focused = true;
+  constructor(options) {
+    this.options = options;
+    this.modelRegistry = options.modelRegistry;
+    this.resolveClassifierKey = options.resolveClassifierKey;
+    this.enabled = options.currentValue.startsWith("On");
+    this.refresh();
+  }
+  get focused() {
+    return this._focused;
+  }
+  set focused(value) {
+    this._focused = value;
+  }
+  invalidate() {}
+  render(width) {
+    const { theme } = this.options;
+    const lines = [
+      theme.fg("accent", theme.bold("  Jev classifier consultation filter")),
+      "",
+      `  Filter: ${this.enabled ? "On" : "Off"}`,
+      `  Classifier: ${this.options.currentClassifier ?? "not selected"}`
+    ];
+    if (this.mode === "resolving") {
+      lines.push("", "  Checking selected classifier availability…");
+    } else if (this.notice) {
+      lines.push("", theme.fg("warning", `  ${this.notice}`));
+    }
+    if (this.mode === "menu") {
+      lines.push("");
+      for (const [index, action] of actionsFor(this.enabled).entries()) {
+        lines.push(`${index === this.selectedIndex ? "→ " : "  "}${labelFor2(action)}`);
+      }
+    }
+    return lines.map((line) => truncateToWidth5(line, width));
+  }
+  handleInput(keyData) {
     if (this.mode !== "menu") {
       return;
     }
-    const actions = setupActions(this.viewState());
-    if (matchesKey2(keyData, Key2.down) || keyData === "\x1B[B" || keyData === "\x1BOB") {
+    const actions = actionsFor(this.enabled);
+    if (matchesKey3(keyData, Key3.down) || keyData === "\x1B[B" || keyData === "\x1BOB") {
       this.selectedIndex = (this.selectedIndex + 1) % actions.length;
-    } else if (matchesKey2(keyData, Key2.up) || keyData === "\x1B[A" || keyData === "\x1BOA") {
+    } else if (matchesKey3(keyData, Key3.up) || keyData === "\x1B[A" || keyData === "\x1BOA") {
       this.selectedIndex = (this.selectedIndex - 1 + actions.length) % actions.length;
-    } else if (matchesKey2(keyData, Key2.enter) || keyData === "\r") {
+    } else if (matchesKey3(keyData, Key3.enter) || keyData === "\r") {
       this.activate(actions[this.selectedIndex]);
     } else {
       return;
     }
     this.options.tui.requestRender();
   }
-  render(width) {
-    return renderJevSetup(this.options, this.viewState(), this.maskedInput, width);
-  }
-  viewState() {
-    return {
-      canEnterKey: this.canEnterKey,
-      credentials: this.credentials,
-      filterEnabled: this.filterEnabled,
-      mode: this.mode,
-      notice: this.notice,
-      selectedIndex: this.selectedIndex,
-      selectedTransport: this.selectedTransport
-    };
-  }
-  createMaskedInput(placeholder) {
-    return new MaskedInput({
-      onEscape: () => this.cancelKeyEntry(),
-      onSubmit: (value) => this.submitEnteredKey(value),
-      placeholder
-    });
-  }
   async refresh() {
-    this.mode = "resolving";
-    this.options.tui.requestRender();
+    const selected = this.options.currentClassifier;
     try {
-      const credentials = await this.deps.resolveTransport(this.options.currentTransport === "auto" ? undefined : this.options.currentTransport);
-      this.credentials = credentials;
-      this.selectedTransport = credentials?.transport;
-      this.mode = "menu";
-      this.selectedIndex = 0;
-      if (credentials?.source === "advisor-json") {
-        this.notice = consumePlaintextKeyWarning();
+      if (selected === JEV_API_KEY_CLASSIFIER) {
+        const stored = await (this.resolveClassifierKey ?? readJevClassifierKey)();
+        this.classifierAvailable = Boolean(stored.key);
+        if (stored.failed) {
+          this.notice = "Could not read the stored Jev API Key state; try again later.";
+        } else if (!this.classifierAvailable) {
+          this.notice = "No Jev API Key is stored. Choose Jev API Key in Jev classifier settings.";
+        }
+      } else {
+        const parsed = selected ? parseJevClassifierRef(selected) : undefined;
+        const registry = this.modelRegistry;
+        if (parsed && registry) {
+          const available = await registry.getAvailableOfType("classifier", parsed.provider);
+          this.classifierAvailable = available.some((model) => model.id === parsed.modelId);
+        }
+        if (!this.classifierAvailable) {
+          this.notice = "Select an available authenticated classifier in Jev classifier settings first.";
+        }
       }
-      this.options.tui.requestRender();
     } catch (error) {
-      this.reportBackgroundError(error instanceof Error ? error.message : String(error));
+      this.notice = `Classifier lookup failed: ${error instanceof Error ? error.message : "Pi error"}`;
     }
+    this.mode = "menu";
+    this.options.tui.requestRender();
   }
   activate(action) {
     if (action === "done") {
-      this.closeSetup();
+      this.options.done();
       return;
     }
-    if (action === "disable") {
-      this.notice = undefined;
-      if (this.commitSelection({
-        enabled: false,
-        transport: this.options.currentTransport
-      }, "Off")) {
-        this.filterEnabled = false;
-      }
+    const enabled = action === "enable";
+    if (enabled && !this.classifierAvailable) {
+      this.options.tui.requestRender();
       return;
     }
-    if (action === "clear-stored-key") {
-      fireAndForget(this.disableAndClear(), this.reportBackgroundError);
+    if (this.options.onSelection?.({ enabled }) === false) {
+      this.notice = "The filter state could not be saved.";
+      this.options.tui.requestRender();
       return;
     }
-    if (action === "enter-key") {
-      if (this.selectedTransport) {
-        this.openKeyEntry(this.selectedTransport);
-      }
-      return;
-    }
-    fireAndForget(this.selectProvider(action), this.reportBackgroundError);
-  }
-  reportBackgroundError = (message) => {
-    this.mode = "menu";
-    this.notice = `Setup failed: ${redactSecrets(message)}`;
-    this.options.tui.requestRender();
-  };
-  async selectProvider(transport) {
-    this.selectedTransport = transport;
-    this.mode = "resolving";
+    this.enabled = enabled;
     this.notice = undefined;
-    this.canEnterKey = false;
-    this.options.tui.requestRender();
-    let credentials;
-    try {
-      credentials = await this.deps.resolveTransport(transport);
-    } catch (error) {
-      this.mode = "menu";
-      this.notice = `Credential lookup failed: ${redactSecrets(error instanceof Error ? error.message : String(error))}`;
-      this.options.tui.requestRender();
-      return;
-    }
-    this.credentials = credentials;
-    this.mode = "menu";
-    if (!credentials) {
-      if (transport === "typesafe" || transport === "openai-decisions") {
-        this.notice = undefined;
-        this.openKeyEntry(transport);
-      } else {
-        this.notice = "No OpenRouter Pi login found. Add one in Pi and retry.";
-      }
-      this.options.tui.requestRender();
-      return;
-    }
-    if (credentials.transport !== transport) {
-      this.notice = "The selected provider did not resolve matching credentials.";
-      this.options.tui.requestRender();
-      return;
-    }
-    await this.verifyAndEnable(credentials);
-  }
-  openKeyEntry(transport) {
-    this.selectedTransport = transport;
-    this.mode = "key-entry";
-    const placeholder = transport === "openai-decisions" ? "Paste an OpenAI Platform API key" : "Paste a TypeSafe API key";
-    this.maskedInput = this.createMaskedInput(placeholder);
-    this.maskedInput.focused = this._focused;
-    this.options.tui.requestRender();
-  }
-  cancelKeyEntry() {
-    this.mode = "menu";
-    this.selectedTransport = undefined;
-    this.maskedInput.setValue("");
-    this.options.tui.requestRender();
-  }
-  async submitEnteredKey(value) {
-    const transport = this.selectedTransport;
-    const key = value.trim();
-    this.maskedInput.setValue("");
-    if (!transport || !key) {
-      return;
-    }
-    await this.verifyAndEnable({ apiKey: key, transport }, key);
-  }
-  async verifyAndEnable(credentials, enteredKey) {
-    this.mode = "verifying";
-    this.notice = undefined;
-    this.options.tui.requestRender();
-    const outcome = await this.deps.verify(credentials);
-    if (!outcome.ok) {
-      this.notice = `Verification failed: ${outcome.message ?? "unknown error"}`;
-      this.mode = enteredKey ? "key-entry" : "menu";
-      this.canEnterKey = !enteredKey && canReplaceWithEnteredKey(credentials);
-      this.options.tui.requestRender();
-      return;
-    }
-    const keyToStore = enteredKey ?? (credentials.transport === "typesafe" && credentials.source === "advisor-json" ? credentials.apiKey : undefined);
-    if (keyToStore) {
-      const stored = await this.deps.writeKey(keyToStore, credentials.transport);
-      if (!stored.ok) {
-        this.notice = stored.message;
-        this.mode = "key-entry";
-        this.canEnterKey = false;
-        this.options.tui.requestRender();
-        return;
-      }
-      if (credentials.transport === "typesafe" && credentials.source === "advisor-json") {
-        const removed = this.deps.removePlaintextKey();
-        this.notice = removed.ok ? "Key moved from advisor.json into the secure store." : `Stored securely, but ${removed.message}`;
-      } else {
-        this.notice = `${stored.message} Verification succeeded.`;
-      }
-    }
-    this.credentials = credentials;
-    const saved = this.commitSelection({ enabled: true, transport: credentials.transport }, "On");
-    if (!saved) {
-      this.mode = "menu";
-      this.notice ??= "Provider verified, but settings could not be saved.";
-      this.options.tui.requestRender();
-      return;
-    }
-    this.filterEnabled = true;
-    this.mode = "menu";
-    this.canEnterKey = false;
-    this.options.tui.requestRender();
-  }
-  commitSelection(selection, legacyValue) {
-    if (this.options.onSelection) {
-      if (!this.options.onSelection(selection)) {
-        return false;
-      }
-      this.closeSetup(true);
-      return true;
-    }
-    this.options.done(legacyValue);
-    return true;
-  }
-  closeSetup(refreshSettings = false) {
-    this.options.done();
-    if (refreshSettings || this.pendingSelectionRefresh) {
-      this.options.afterSelection?.();
-    }
-    this.pendingSelectionRefresh = false;
-  }
-  async disableAndClear() {
-    const { credentials } = this;
-    if (!(credentials && canClearCredential(credentials))) {
-      return;
-    }
-    if (this.options.onSelection) {
-      const saved = this.options.onSelection({
-        enabled: false,
-        transport: this.options.currentTransport
-      });
-      if (!saved) {
-        this.mode = "menu";
-        this.notice = "Could not save the disabled state; the key was not cleared.";
-        this.options.tui.requestRender();
-        return;
-      }
-      this.filterEnabled = false;
-      this.pendingSelectionRefresh = true;
-    }
-    this.mode = "clearing";
-    this.notice = undefined;
-    this.options.tui.requestRender();
-    const result = await this.deps.clearStoredKey(credentials.transport);
-    this.mode = "menu";
-    this.notice = result.message;
-    if (!result.ok) {
-      this.options.tui.requestRender();
-      return;
-    }
-    this.credentials = undefined;
-    if (this.options.onSelection) {
-      this.closeSetup();
-    } else if (this.commitSelection({ enabled: false, transport: this.options.currentTransport }, "Off")) {
-      this.filterEnabled = false;
-    }
-    this.options.tui.requestRender();
+    this.options.done(enabled ? "On" : "Off");
   }
 }
 
@@ -8565,10 +7743,10 @@ class SearchableModelMultiSelector extends ModelSelectorAdapter {
 }
 
 // src/ui/text-setting-submenu.ts
-import { Input as Input3, truncateToWidth as truncateToWidth6 } from "@earendil-works/pi-tui";
+import { Input as Input4, truncateToWidth as truncateToWidth6 } from "@earendil-works/pi-tui";
 
 class TextSettingSubmenu {
-  input = new Input3;
+  input = new Input4;
   options;
   _focused = true;
   error;
@@ -8641,19 +7819,43 @@ var scoutTimeoutItem = (settings) => {
     values: numericValues(timeoutMs, [5000, 1e4, 15000, 30000, 45000, 60000, 90000, 120000])
   };
 };
-var jevItems = (settings, theme, tui, jevSetupDeps, onJevSetup, afterJevSetup) => [
+var jevFilterRowValue = (settings) => {
+  if (!settings.jevFilterEnabled) {
+    return "Off";
+  }
+  return settings.jevClassifier ? "On" : "On (unavailable: no classifier)";
+};
+var jevItems = (settings, theme, tui, jevClassifierRegistry, jevKeyDeps, onJevFilter, onJevProvider) => [
   {
-    currentValue: settingValue(settings.jevFilterEnabled, false),
-    description: "Screen low-stakes ask_advisor consultations with Jev/Decisions; guided setup verifies credentials.",
-    id: "jevFilter",
-    label: "Jev/Decisions consultation filter",
-    submenu: (currentValue, done) => new JevSetupSubmenu({
-      afterSelection: afterJevSetup,
-      currentTransport: settings.jevTransport ?? DEFAULT_JEV_TRANSPORT,
+    currentValue: settings.jevClassifier ?? "Choose classifier",
+    description: "Select a Pi-authenticated classifier or explicitly configure the separate Jev API Key option.",
+    id: "jevProvider",
+    label: "Jev classifier",
+    submenu: (currentValue, done) => new JevClassifierSubmenu({
       currentValue,
       done,
-      onSelection: onJevSetup,
-      setupDeps: jevSetupDeps,
+      keybindings: getKeybindings(),
+      modelRegistry: jevClassifierRegistry,
+      onSelection: onJevProvider,
+      persistKey: jevKeyDeps?.persistClassifierKey,
+      resolveStoredKey: jevKeyDeps?.resolveClassifierKey,
+      restoreKey: jevKeyDeps?.restoreClassifierKey,
+      theme,
+      tui
+    })
+  },
+  {
+    currentValue: jevFilterRowValue(settings),
+    description: "Screen low-stakes ask_advisor consultations with the selected Jev provider.",
+    id: "jevFilter",
+    label: "Jev/Decisions consultation filter",
+    submenu: (currentValue, done) => new JevFilterSubmenu({
+      currentClassifier: settings.jevClassifier,
+      currentValue,
+      done,
+      modelRegistry: jevClassifierRegistry,
+      onSelection: onJevFilter,
+      resolveClassifierKey: jevKeyDeps?.resolveClassifierKey,
       theme,
       tui
     })
@@ -8680,21 +7882,6 @@ var jevItems = (settings, theme, tui, jevSetupDeps, onJevSetup, afterJevSetup) =
     values: numericValues(settings.jevFilterOverrideWindow ?? DEFAULT_JEV_FILTER_OVERRIDE_WINDOW, [0, 3, 5, 10, 20, 50]).map((value) => `${value} turns`)
   },
   {
-    currentValue: settings.jevModel ?? DEFAULT_JEV_MODEL,
-    description: "TypeSafe Jev model used for screening and turn-gate checks.",
-    id: "jevModel",
-    label: "Jev model",
-    submenu: (_currentValue, done) => new TextSettingSubmenu({
-      description: "Enter a TypeSafe model name (for example jev-latest or jev-1.13.0).",
-      initial: settings.jevModel ?? DEFAULT_JEV_MODEL,
-      onCancel: done,
-      onSubmit: (value) => ({ value: value.trim() || DEFAULT_JEV_MODEL }),
-      theme,
-      title: "Jev model",
-      tui
-    })
-  },
-  {
     currentValue: String(settings.jevTimeoutMs ?? DEFAULT_JEV_TIMEOUT_MS),
     description: "Total wall-time budget for one Jev call, including retries.",
     id: "jevTimeoutMs",
@@ -8707,13 +7894,6 @@ var jevItems = (settings, theme, tui, jevSetupDeps, onJevSetup, afterJevSetup) =
     id: "jevDigestMaxChars",
     label: "Jev digest chars",
     values: numericValues(settings.jevDigestMaxChars ?? DEFAULT_JEV_DIGEST_MAX_CHARS, [0, 1000, 2000, 4000, 8000, 15000])
-  },
-  {
-    currentValue: String(settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK),
-    description: "TypeSafe/OpenRouter estimated input price per million tokens; ignored for OpenAI Decisions, whose cost is unavailable.",
-    id: "jevPricePerMtok",
-    label: "Jev price/Mtok",
-    values: numericValues(settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK, [0.01, 0.02, 0.042, 0.05, 0.1])
   },
   {
     currentValue: settings.jevTurnGateEveryTurns === 0 || settings.jevTurnGateEveryTurns === undefined ? "Off" : `every ${settings.jevTurnGateEveryTurns} turns`,
@@ -8780,9 +7960,10 @@ var createSettingsItems = ({
   modelWhitelist,
   presets,
   settings,
-  afterJevSetup,
-  jevSetupDeps,
-  onJevSetup,
+  jevClassifierRegistry,
+  jevKeyDeps,
+  onJevFilter,
+  onJevProvider,
   theme,
   tui
 }) => {
@@ -8795,8 +7976,15 @@ var createSettingsItems = ({
       values: presets.map((preset) => preset.label)
     },
     {
+      currentValue: settingValue(settings.advisorToolsEnabled, true),
+      description: "Allow the model to call the Advisor tools; /advisor-off disables them across sessions.",
+      id: "advisorToolsEnabled",
+      label: "Advisor tools",
+      values: TOGGLE_VALUES
+    },
+    {
       currentValue: settingValue(settings.simpleMode, false),
-      description: "Keep the Advisor available on demand without automatic gates or blocks.",
+      description: "Keep enabled Advisor tools available on demand without automatic gates or blocks.",
       id: "simpleMode",
       label: "Simple mode",
       values: TOGGLE_VALUES
@@ -8917,12 +8105,12 @@ var createSettingsItems = ({
       title: "Tool disclosure policies",
       tui
     })
-  }, toggle("trackedFileContent", "Tracked file content", "Allow tracked file contents to be sent with Advisor context.", settings.trackedFileContent, false), toggle("untrackedContent", "Untracked file content", "Allow untracked file contents to be sent with Advisor context.", settings.untrackedContent, false), toggle("outcomeLogging", "Outcome logging (global)", "Allow anonymized Advisor outcomes to be logged globally.", settings.outcomeLogging, false), ...jevItems(settings, theme, tui, jevSetupDeps, onJevSetup, afterJevSetup));
+  }, toggle("trackedFileContent", "Tracked file content", "Allow tracked file contents to be sent with Advisor context.", settings.trackedFileContent, false), toggle("untrackedContent", "Untracked file content", "Allow untracked file contents to be sent with Advisor context.", settings.untrackedContent, false), toggle("outcomeLogging", "Outcome logging (global)", "Allow anonymized Advisor outcomes to be logged globally.", settings.outcomeLogging, false), ...jevItems(settings, theme, tui, jevClassifierRegistry, jevKeyDeps, onJevFilter, onJevProvider));
   return items;
 };
 
 // src/ui/settings-list-adapter.ts
-import { Key as Key3, matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
+import { Key as Key4, matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
 
 class SettingsListAdapter {
   list;
@@ -8956,9 +8144,9 @@ class SettingsListAdapter {
   }
   changeWithArrow(keyData, onChange) {
     let direction = 0;
-    if (matchesKey3(keyData, Key3.left) || keyData === "\x1B[D") {
+    if (matchesKey4(keyData, Key4.left) || keyData === "\x1B[D") {
       direction = -1;
-    } else if (matchesKey3(keyData, Key3.right) || keyData === "\x1B[C") {
+    } else if (matchesKey4(keyData, Key4.right) || keyData === "\x1B[C") {
       direction = 1;
     }
     if (direction === 0) {
@@ -9016,10 +8204,13 @@ var BOOLEAN_SETTING_IDS = new Set(BOOLEAN_SETTING_FIELDS);
 var parseModelWhitelist = (value) => [
   ...new Set(value.split(",").map((model) => model.trim()).filter(Boolean))
 ];
-var applyCoreMutation = (settings, id, value, presets) => {
+var applyModeMutation = (settings, id, value) => {
   switch (id) {
-    case "context": {
-      settings.contextMaxChars = presets.find((preset) => preset.label === value)?.value ?? settings.contextMaxChars;
+    case "advisorToolsEnabled": {
+      settings.advisorToolsEnabled = value === "On";
+      if (!settings.advisorToolsEnabled) {
+        settings.alwaysOn = false;
+      }
       return true;
     }
     case "simpleMode": {
@@ -9028,6 +8219,20 @@ var applyCoreMutation = (settings, id, value, presets) => {
     }
     case "alwaysOn": {
       settings.alwaysOn = value === "On";
+      if (settings.alwaysOn) {
+        settings.advisorToolsEnabled = true;
+      }
+      return true;
+    }
+    default: {
+      return false;
+    }
+  }
+};
+var applyCoreMutation = (settings, id, value, presets) => {
+  switch (id) {
+    case "context": {
+      settings.contextMaxChars = presets.find((preset) => preset.label === value)?.value ?? settings.contextMaxChars;
       return true;
     }
     case "fallbackModel": {
@@ -9116,10 +8321,6 @@ var applyJevMutation = (settings, id, value) => {
       settings.jevTurnGateNoulThreshold = Number(value);
       return true;
     }
-    case "jevModel": {
-      settings.jevModel = value.trim() || DEFAULT_JEV_MODEL;
-      return true;
-    }
     case "jevTimeoutMs": {
       settings.jevTimeoutMs = Number(value);
       return true;
@@ -9132,16 +8333,15 @@ var applyJevMutation = (settings, id, value) => {
       settings.jevDigestMaxChars = Number(value);
       return true;
     }
-    case "jevPricePerMtok": {
-      settings.jevPricePerMtok = Number(value);
-      return true;
-    }
     default: {
       return false;
     }
   }
 };
 var mutateAdvisorSettings = (settings, id, value, presets) => {
+  if (applyModeMutation(settings, id, value)) {
+    return;
+  }
   if (applyCoreMutation(settings, id, value, presets)) {
     return;
   }
@@ -9217,15 +8417,17 @@ class AdvisorSettingsSelector {
     const fallbackModel = advisorFallbackModelItem(this.settings, this.options.modelRefs, this.options.keybindings, this.options.theme, this.options.tui);
     const modelWhitelist = advisorModelWhitelistItem(this.settings, this.options.modelRefs, this.options.keybindings, this.options.theme, this.options.tui);
     const items = createSettingsItems({
-      afterJevSetup: () => {
-        this.settingsList = this.createSettingsList("jevFilter");
-        this.options.tui.requestRender();
-      },
       effortLevels: this.options.effortLevels,
       fallbackModel,
-      jevSetupDeps: this.options.jevSetupDeps,
+      jevClassifierRegistry: this.options.jevSetupDeps?.modelRegistry,
+      jevKeyDeps: {
+        persistClassifierKey: this.options.jevSetupDeps?.persistClassifierKey,
+        resolveClassifierKey: this.options.jevSetupDeps?.resolveClassifierKey,
+        restoreClassifierKey: this.options.jevSetupDeps?.restoreClassifierKey
+      },
       modelWhitelist,
-      onJevSetup: (selection) => this.applyJevSetup(selection),
+      onJevFilter: (selection) => this.applyJevFilter(selection),
+      onJevProvider: (selection) => this.applyJevProvider(selection),
       presets: this.presets,
       settings: this.settings,
       theme: this.options.theme,
@@ -9238,16 +8440,15 @@ class AdvisorSettingsSelector {
     }
     return adapter;
   }
-  applyJevSetup(selection) {
+  applyJevSelection(patch, handler) {
     const updated = {
       ...this.settings,
-      jevFilterEnabled: selection.enabled,
-      jevTransport: selection.transport,
+      ...patch,
       showUsageDetails: this.settings.showUsageDetails ?? true,
       toolPolicies: { ...this.settings.toolPolicies }
     };
     try {
-      const result = this.options.onJevSetup ? this.options.onJevSetup(selection, updated) : (this.options.onChange ?? this.options.onSave)?.(updated);
+      const result = handler ? handler(updated) : (this.options.onChange ?? this.options.onSave)?.(updated);
       if (result === false) {
         return false;
       }
@@ -9256,6 +8457,47 @@ class AdvisorSettingsSelector {
     }
     Object.assign(this.settings, updated);
     return true;
+  }
+  applyJevFilter(selection) {
+    const patch = { jevFilterEnabled: selection.enabled };
+    const handler = this.options.onJevFilter;
+    if (handler) {
+      return this.applyJevSelection(patch, (settings) => handler(selection, settings));
+    }
+    const legacy = this.options.onJevSetup;
+    if (legacy) {
+      return this.applyJevSelection(patch, (settings) => legacy({
+        enabled: selection.enabled,
+        transport: settings.jevTransport ?? "auto"
+      }, settings));
+    }
+    return this.applyJevSelection(patch);
+  }
+  applyJevProvider(selection) {
+    let patch;
+    if (selection.classifier) {
+      patch = { jevClassifier: selection.classifier };
+    } else if (selection.transport) {
+      patch = {
+        jevBaseUrl: selection.baseUrl,
+        jevKeyProvider: selection.keyProvider,
+        jevTransport: selection.transport
+      };
+    } else {
+      patch = {};
+    }
+    const handler = this.options.onJevProvider;
+    if (handler) {
+      return this.applyJevSelection(patch, (settings) => handler(selection, settings));
+    }
+    const legacy = this.options.onJevSetup;
+    if (legacy && selection.transport) {
+      return this.applyJevSelection(patch, (settings) => legacy({
+        enabled: settings.jevFilterEnabled ?? false,
+        transport: selection.transport
+      }, settings));
+    }
+    return this.applyJevSelection(patch);
   }
   startSimpleModeGradient() {
     this.stopSimpleModeGradient();
@@ -9314,20 +8556,19 @@ var applySessionSettings = (settings) => {
   setShowUsageDetailsRef(settings.showUsageDetails ?? true);
   setShowUsageFooterRef(settings.showUsageFooter ?? false);
   setSimpleModeRef(settings.simpleMode ?? false);
+  setAdvisorToolsEnabledRef(settings.advisorToolsEnabled ?? true);
   setAlwaysOnRef(settings.alwaysOn ?? false);
   setAdvisorFailureModeRef(settings.failureMode ?? "block-session");
   setAdvisorHerdrIntegrationRef(settings.herdrIntegration ?? true);
 };
 var applyJevSettings = (settings) => {
   setAdvisorJevFilterEnabledRef(settings.jevFilterEnabled ?? false);
+  setAdvisorJevClassifierRef(settings.jevClassifier);
   setAdvisorJevFilterSkipConfidenceRef(settings.jevFilterSkipConfidence ?? DEFAULT_JEV_FILTER_SKIP_CONFIDENCE);
   setAdvisorJevFilterNoulMarginRef(settings.jevFilterNoulMargin ?? DEFAULT_JEV_FILTER_NOUL_MARGIN);
   setAdvisorJevFilterOverrideWindowRef(settings.jevFilterOverrideWindow ?? DEFAULT_JEV_FILTER_OVERRIDE_WINDOW);
-  setAdvisorJevModelRef(settings.jevModel ?? DEFAULT_JEV_MODEL);
   setAdvisorJevTimeoutMsRef(settings.jevTimeoutMs ?? DEFAULT_JEV_TIMEOUT_MS);
   setAdvisorJevDigestMaxCharsRef(settings.jevDigestMaxChars ?? DEFAULT_JEV_DIGEST_MAX_CHARS);
-  setAdvisorJevPricePerMtokRef(settings.jevPricePerMtok ?? DEFAULT_JEV_PRICE_PER_MTOK);
-  setAdvisorJevTransportRef(settings.jevTransport ?? DEFAULT_JEV_TRANSPORT);
   setAdvisorJevTurnGateEveryTurnsRef(settings.jevTurnGateEveryTurns ?? DEFAULT_JEV_TURN_GATE_EVERY_TURNS);
   setAdvisorJevTurnGateNoulThresholdRef(settings.jevTurnGateNoulThreshold ?? DEFAULT_JEV_TURN_GATE_NOUL_THRESHOLD);
 };
@@ -9366,6 +8607,24 @@ var saveAdvisorSettings = (ctx, settings, options = {}) => {
 };
 
 // src/commands/settings-commands.ts
+var persistJevSettings = (ctx, settings, runtime) => {
+  try {
+    saveAdvisorSettings(ctx, settings, { skipOutcomeLogging: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.ui.notify(`Could not save Advisor settings: ${message}`, "error");
+    return false;
+  }
+  try {
+    setAdvisorToolsActive(runtime.pi, settings.advisorToolsEnabled ?? true);
+    runtime.updateSameModelNotice(ctx);
+    runtime.updateAdvisorUsageStatus(ctx);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.ui.notify(`Advisor settings were saved, but the status refresh failed: ${message}`, "warning");
+  }
+  return true;
+};
 var registerSettingsCommands = (runtime) => {
   runtime.pi.registerCommand("advisor-settings", {
     description: "Configure Advisor settings",
@@ -9378,42 +8637,40 @@ var registerSettingsCommands = (runtime) => {
         effortLevels: EFFORT_LEVELS,
         initial,
         jevSetupDeps: {
-          resolveTransport: (transport) => transport ? resolveJevTransportFor(transport, ctx) : resolveJevTransport(ctx)
+          modelRegistry: ctx.modelRegistry,
+          persistClassifierKey: writeJevClassifierKey,
+          resolveClassifierKey: readJevClassifierKey,
+          restoreClassifierKey: restoreJevClassifierKey
         },
         keybindings,
         modelRefs: getConfiguredModelRefs(ctx),
         onCancel: () => done(undefined),
         onChange: (settings) => {
+          const toolsWereEnabled = getAdvisorSettings().advisorToolsEnabled ?? true;
+          const toolsEnabled = settings.advisorToolsEnabled ?? true;
           try {
             saveAdvisorSettings(ctx, settings);
+            if (toolsWereEnabled !== toolsEnabled) {
+              runtime.noteAdvisorToolsStateChange();
+            }
+            setAdvisorToolsActive(runtime.pi, toolsEnabled);
             runtime.updateSameModelNotice(ctx);
             runtime.updateAdvisorUsageStatus(ctx);
           } catch (error) {
+            const toolsDisabled = toolsWereEnabled && settings.advisorToolsEnabled === false;
+            if (toolsDisabled) {
+              runtime.noteAdvisorToolsStateChange();
+              setAdvisorToolsEnabledRef(false);
+              setAlwaysOnRef(false);
+              setAdvisorToolsActive(runtime.pi, false);
+              runtime.resetSameModelNotice();
+            }
             const message = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`Could not save Advisor settings: ${message}`, "error");
+            ctx.ui.notify(toolsDisabled ? `Could not save Advisor settings; tools remain disabled for this session. ${message}` : `Could not save Advisor settings: ${message}`, "error");
           }
         },
-        onJevSetup: (selection, settings) => {
-          try {
-            saveAdvisorSettings(ctx, {
-              ...settings,
-              jevFilterEnabled: selection.enabled,
-              jevTransport: selection.transport
-            }, { skipOutcomeLogging: true });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`Could not save Advisor settings: ${message}`, "error");
-            return false;
-          }
-          try {
-            runtime.updateSameModelNotice(ctx);
-            runtime.updateAdvisorUsageStatus(ctx);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            ctx.ui.notify(`Advisor settings were saved, but the status refresh failed: ${message}`, "warning");
-          }
-          return true;
-        },
+        onJevFilter: (_selection, settings) => persistJevSettings(ctx, settings, runtime),
+        onJevProvider: (_selection, settings) => persistJevSettings(ctx, settings, runtime),
         presets: CONTEXT_PRESETS,
         theme,
         tui
@@ -9421,19 +8678,36 @@ var registerSettingsCommands = (runtime) => {
     }
   });
   runtime.pi.registerCommand("advisor-off", {
-    description: "Disable on-demand Advisor calls; keep the current model",
+    description: "Disable model-facing Advisor tools across sessions; keep the current model",
     handler: (_args, ctx) => {
-      runtime.pi.setActiveTools(runtime.pi.getActiveTools().filter((name) => name !== "ask_advisor" && name !== "record_advisor_outcome"));
+      runtime.noteAdvisorToolsStateChange();
+      setAdvisorToolsActive(runtime.pi, false);
       runtime.resetSameModelNotice();
+      try {
+        loadConfig(ctx);
+      } catch (error) {
+        setAdvisorToolsEnabledRef(false);
+        setAlwaysOnRef(false);
+        const message = error instanceof Error ? error.message : String(error);
+        notify(ctx, `Advisor tools disabled for this session, but configuration could not be reloaded: ${message}`, "error");
+        return Promise.resolve();
+      }
       const wasAlwaysOn = alwaysOnRef;
+      setAdvisorToolsEnabledRef(false);
       if (wasAlwaysOn) {
         setAlwaysOnRef(false);
+      }
+      try {
         saveConfig(ctx, {
           persistAdvisor: true,
           persistExecutor: false
         });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        notify(ctx, `Advisor tools disabled for this session, but the setting could not be saved: ${message}`, "error");
+        return Promise.resolve();
       }
-      notify(ctx, `Advisor flow disabled. Current model unchanged.${wasAlwaysOn ? " Always on turned off." : ""}`, "info");
+      notify(ctx, `Advisor tools disabled. Current model unchanged.${wasAlwaysOn ? " Always on turned off." : ""}`, "info");
       return Promise.resolve();
     }
   });
@@ -9449,6 +8723,43 @@ var registerCommands = (pi, dependencies = {}) => {
   registerModelCommands(runtime);
   registerOutcomeStatsCommand(runtime);
   registerSettingsCommands(runtime);
+};
+
+// src/tools/budget-feedback.ts
+var advisorBudgetMessage = (session) => {
+  const simple = isSimpleMode();
+  const remaining = simple ? undefined : session.remainingCalls(getAdvisorMaxCallsPerSession());
+  return {
+    content: [
+      `Advisor calls remaining this session: ${remaining ?? "unlimited"}.`,
+      simple ? "Call budgets are disabled in Simple mode." : undefined,
+      "This is the current available allowance after consumed and reserved calls. Do not subtract earlier consultations again; this report supersedes earlier budget reports."
+    ].filter(Boolean).join(`
+`),
+    customType: "advisor-budget",
+    display: false
+  };
+};
+var advisorBudgetUpdate = (event, ctx, pi, session) => {
+  if (!pi.getActiveTools().includes("ask_advisor")) {
+    return;
+  }
+  try {
+    loadConfig(ctx);
+  } catch {
+    return;
+  }
+  if (!advisorToolsEnabledRef || !advisorModelIsAllowed(ctx)) {
+    return;
+  }
+  const message = advisorBudgetMessage(session);
+  const previous = event.context?.contextMessages.findLast((entry) => entry.role === "custom" && entry.customType === "advisor-budget");
+  if (previous?.role === "custom" && previous.content === message.content) {
+    return;
+  }
+  return {
+    entries: [{ ...message, type: "custom_message" }]
+  };
 };
 
 // src/tools/gate-policy.ts
@@ -9525,15 +8836,7 @@ var reserveAdvisorCall = (event, ctx, session, reservedCalls) => {
 };
 
 // src/tools/jev-turn-gate.ts
-var turnGateQuestion = {
-  criteria: {
-    false: "The executor is progressing soundly on work that matches the user's intent; interrupting would add nothing material.",
-    true: "The executor is approaching a material decision, repeating a failure, about to claim success without validation, or drifting from the user's intent; a second opinion now would change what happens next."
-  },
-  instructions: "Should a senior engineering advisor be consulted right now, before the executor continues? Judge from `recent_conversation`.",
-  type: "noul"
-};
-var outageNotifier2 = createOutageNotifier((category, message) => `Advisor Jev/Decisions turn gate failed (${category}); continuing without a proactive consultation. ${message}`);
+var outageNotifier2 = createOutageNotifier((category, message) => `Advisor Jev classifier turn gate failed (${category}); continuing without a proactive consultation. ${message}`);
 var notifyFailureOnce = outageNotifier2.notify;
 var shouldRunTurnGate = (registration, ctx, session) => {
   const interval = advisorJevTurnGateEveryTurnsRef;
@@ -9547,6 +8850,61 @@ var consumeTurnGateBudget = (session, shouldConsult) => {
   return true;
 };
 var resetJevTurnGateNotification = outageNotifier2.reset;
+var classifyGate = async (ctx, deps) => {
+  if (deps.classifyResult) {
+    return deps.classifyResult();
+  }
+  const selectedRef = advisorJevClassifierModeRef === "api-key" ? "typesafe/jev-latest" : deps.selectedRef?.() ?? advisorJevClassifierRef;
+  const apiKey = advisorJevClassifierModeRef === "api-key" ? await (deps.resolveApiKey ?? consumeJevClassifierKey)() : undefined;
+  if (!selectedRef || advisorJevClassifierModeRef === "api-key" && !apiKey) {
+    throw new JevFailureError("auth", "No credentials resolved for the selected Jev classifier.");
+  }
+  return classifyTurnGate(ctx, selectedRef, buildJevState(ctx, {}), {
+    apiKey,
+    signal: ctx.signal
+  });
+};
+var sendProactiveConsultation = async (registration, ctx, consult) => {
+  const { session } = registration;
+  const activity = registration.herdrActivity ?? herdrAdvisorActivity;
+  const finishHerdrActivity = activity.start();
+  try {
+    registration.send({
+      content: "Proactive Advisor turn review",
+      customType: "advisor-turn-gate-call",
+      details: {
+        question: `Turn gate: ${session.turnsSinceConsultation} turns without a consultation`,
+        turn: session.sessionTurnOrdinal
+      },
+      display: true
+    });
+    const consulted = await consult(ctx, undefined, ctx.signal, undefined, "turn-gate");
+    session.recordJevGateConsultation();
+    session.resetTurnsSinceConsultation();
+    session.recordInvocation({
+      cost: advisorUsageCost(consulted.usage),
+      executionEffect: "continued",
+      kind: "markdown",
+      model: consulted.model,
+      trigger: "turn-gate",
+      usage: consulted.usage
+    });
+    updateAdvisorUsageStatus(ctx, session);
+    registration.send({
+      content: consulted.markdown,
+      customType: "advisor-turn-gate-result",
+      details: {
+        advisor: consulted.model,
+        agentRulesBytes: consulted.agentRulesBytes,
+        text: consulted.markdown,
+        usage: consulted.usage
+      },
+      display: true
+    });
+  } finally {
+    finishHerdrActivity();
+  }
+};
 var handleJevTurnEnd = async (registration, ctx) => {
   const { session } = registration;
   session.recordCompletedTurn();
@@ -9554,60 +8912,16 @@ var handleJevTurnEnd = async (registration, ctx) => {
     return;
   }
   const consult = registration.deps?.consult ?? registration.consult;
-  const deps = registration.deps ?? {};
   try {
-    const credentials = await (deps.resolveTransport ?? resolveJevTransport)(ctx);
-    if (!credentials) {
-      session.recordJevGateFailure();
-      notifyFailureOnce(ctx, "missing-key", "No credentials resolved for the selected Jev/Decisions provider.");
-      return;
-    }
-    const client = jevClientFromCredentials(credentials, deps.fetch);
-    const result = await client.ask(buildJevState(ctx, {}), {
-      should_consult: turnGateQuestion
-    });
-    session.recordJevGateCheck(result.usage);
+    const result = await classifyGate(ctx, registration.deps ?? {});
+    session.recordJevGateCheck(result.usage ? {
+      cost: result.usage.cost,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens
+    } : undefined);
     const shouldConsult = composeTurnGateVerdict(result.answers, advisorJevTurnGateNoulThresholdRef);
-    if (!advisorModelIsAllowed(ctx) || !consumeTurnGateBudget(session, shouldConsult)) {
-      return;
-    }
-    const herdrActivity = registration.herdrActivity ?? herdrAdvisorActivity;
-    const finishHerdrActivity = herdrActivity.start();
-    try {
-      registration.send({
-        content: "Proactive Advisor turn review",
-        customType: "advisor-turn-gate-call",
-        details: {
-          question: `Turn gate: ${session.turnsSinceConsultation} turns without a consultation`,
-          turn: session.sessionTurnOrdinal
-        },
-        display: true
-      });
-      const consulted = await consult(ctx, undefined, ctx.signal, undefined, "turn-gate");
-      session.recordJevGateConsultation();
-      session.resetTurnsSinceConsultation();
-      session.recordInvocation({
-        cost: advisorUsageCost(consulted.usage),
-        executionEffect: "continued",
-        kind: "markdown",
-        model: consulted.model,
-        trigger: "turn-gate",
-        usage: consulted.usage
-      });
-      updateAdvisorUsageStatus(ctx, session);
-      registration.send({
-        content: consulted.markdown,
-        customType: "advisor-turn-gate-result",
-        details: {
-          advisor: consulted.model,
-          agentRulesBytes: consulted.agentRulesBytes,
-          text: consulted.markdown,
-          usage: consulted.usage
-        },
-        display: true
-      });
-    } finally {
-      finishHerdrActivity();
+    if (advisorModelIsAllowed(ctx) && consumeTurnGateBudget(session, shouldConsult)) {
+      await sendProactiveConsultation(registration, ctx, consult);
     }
   } catch (error) {
     session.recordJevGateFailure();
@@ -9872,6 +9186,7 @@ var registerAskAdvisorTool = ({
         reservedCalls.delete(_id);
         throw error;
       }
+      let classifierUsage;
       const simpleMode = isSimpleMode();
       if (!simpleMode && !session.reserveCall(_id, getAdvisorMaxCallsPerSession())) {
         throw new Error("Advisor call budget exhausted for this session.");
@@ -9894,6 +9209,7 @@ var registerAskAdvisorTool = ({
           question: resolveAdvisorRequest(params.question),
           signal
         });
+        classifierUsage = screening.usage;
         if (screening.decision === "skip") {
           const skipText = screeningSkipText(screening);
           session.releaseCall(_id);
@@ -9906,11 +9222,15 @@ var registerAskAdvisorTool = ({
             },
             text: skipText
           };
-          return {
+          const skipResult = {
             content: [{ text: skipText, type: "text" }],
             details: skipped,
             structuredContent: skipped
           };
+          if (classifierUsage) {
+            skipResult.usage = classifierUsage;
+          }
+          return skipResult;
         }
         if (sameModelAdvisorDisabled(ctx, ctx.model, followUp?.payload.model)) {
           return skippedSameModelResult(_id, sameModelNoticeFor(followUp?.payload.model), reservedCalls, session);
@@ -9974,7 +9294,8 @@ var registerAskAdvisorTool = ({
             usage: result.usage
           });
           const usage = snapshotAdvisorUsage(result.usage);
-          const piUsage = advisorUsageForPi(result.usage);
+          const advisorPiUsage = advisorUsageForPi(result.usage);
+          const piUsage = combineAdvisorAndClassifierUsage(advisorPiUsage, classifierUsage);
           updateAdvisorUsageStatus(ctx, session);
           const details = {
             adviceId: result.adviceId,
@@ -10259,20 +9580,19 @@ var registerToolLifecycle = ({
       return;
     }
     loadConfig(ctx);
-    if (!advisorModelAccess(ctx).allowed || sameModelAdvisorDisabled(ctx)) {
+    if (!advisorToolsEnabledRef || !advisorModelAccess(ctx).allowed || sameModelAdvisorDisabled(ctx)) {
       return;
     }
     const guidelines = advisorInvocationGuidelines();
-    const budget = isSimpleMode() ? undefined : session.remainingCalls(getAdvisorMaxCallsPerSession());
-    if (budget !== undefined) {
-      guidelines.push(`Advisor calls remaining this session: ${budget}.
-Reserve calls for material decisions, repeated failures, or final review.`);
+    if (!isSimpleMode()) {
+      guidelines.push("Use the latest advisor-budget message for the current call allowance. Reserve calls for material decisions, repeated failures, or final review.");
     }
     if (guidelines.length > 0) {
       sections.advisor_invocation_settings = `Advisor invocation settings:
 ${guidelines.map((rule) => `- ${rule}`).join(`
 `)}`;
     }
+    return { message: advisorBudgetMessage(session) };
   });
   pi.on("input", () => {
     session.clearFollowUps();
@@ -10289,11 +9609,24 @@ ${guidelines.map((rule) => `- ${rule}`).join(`
         reason: session.blockedReason ?? "Advisor session is blocked."
       };
     }
+    const isAdvisorTool = event.toolName === "ask_advisor" || event.toolName === "record_advisor_outcome";
+    if (isAdvisorTool && !advisorToolsEnabledRef) {
+      return {
+        block: true,
+        reason: "Advisor tools are disabled. Enable them in /advisor-settings or run /advisor."
+      };
+    }
     if (!pi.getActiveTools().includes("ask_advisor")) {
       return;
     }
     if (!loadConfigOrSkipGating(ctx)) {
       return;
+    }
+    if (isAdvisorTool && !advisorToolsEnabledRef) {
+      return {
+        block: true,
+        reason: "Advisor tools are disabled. Enable them in /advisor-settings or run /advisor."
+      };
     }
     if (sameModelAdvisorDisabled(ctx)) {
       return;
@@ -10498,7 +9831,10 @@ var registerAdvisorTool = (pi, session = sessionStateFor(pi), dependencies = {})
   if (dependencies.turnGateDeps) {
     turnGate.deps = dependencies.turnGateDeps;
   }
-  registerJevTurnGate((event, handler) => pi.on(event, handler), turnGate);
+  registerJevTurnGate((event, handler) => pi.on(event, async (turn, ctx) => {
+    await handler(turn, ctx);
+    return advisorBudgetUpdate(turn, ctx, pi, session);
+  }), turnGate);
 };
 
 // extensions/index.ts
@@ -10524,8 +9860,8 @@ function registerPiAdvisor(pi) {
   });
 }
 export {
-  runAdvisorGate2 as runAdvisorGate,
-  parseAutomaticDecision2 as parseAutomaticDecision,
+  consultAdvisor2 as consultAdvisor,
   registerPiAdvisor as default,
-  consultAdvisor2 as consultAdvisor
+  parseAutomaticDecision2 as parseAutomaticDecision,
+  runAdvisorGate2 as runAdvisorGate
 };

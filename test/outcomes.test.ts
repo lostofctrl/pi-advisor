@@ -22,8 +22,10 @@ describe("outcome log", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-advisor-outcomes-"));
     const prior = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = dir;
+
     const advice =
       "raw advice SENTINEL_PROMPT /private/path session-123 tool output";
+
     try {
       await appendOutcome({
         adoption: "followed",
@@ -64,6 +66,7 @@ describe("outcome log", () => {
       } else {
         process.env.PI_CODING_AGENT_DIR = prior;
       }
+
       rmSync(dir, { force: true, recursive: true });
     }
   });
@@ -114,6 +117,7 @@ describe("outcome log", () => {
         "{truncated",
       ].join("\n")
     );
+
     const stats = aggregateOutcomeRecords(
       parsed.records,
       parsed.malformedLines
@@ -152,6 +156,7 @@ describe("outcome log", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-advisor-outcomes-"));
     const prior = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = dir;
+
     try {
       writeFileSync(join(dir, "advisor-outcomes-salt"), "");
       const staleLock = `${outcomeLogPath()}.lock`;
@@ -168,10 +173,12 @@ describe("outcome log", () => {
           })
         )
       );
+
       const records = readFileSync(outcomeLogPath(), "utf-8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line));
+
       expect(records).toHaveLength(20);
       expect(new Set(records.map((record) => record.adviceHash)).size).toBe(1);
     } finally {
@@ -180,6 +187,7 @@ describe("outcome log", () => {
       } else {
         process.env.PI_CODING_AGENT_DIR = prior;
       }
+
       rmSync(dir, { force: true, recursive: true });
     }
   });

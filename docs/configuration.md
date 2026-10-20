@@ -50,6 +50,7 @@ All fields are optional. The Advisor model below is an explicit example of a mod
   "advisorGitContext": "summary",
   "advisorGitContextMaxChars": 20000,
   "simpleMode": false,
+  "advisorToolsEnabled": true,
   "alwaysOn": false,
   "advisorHerdrIntegration": true,
   "advisorToolResultMaxLines": 2000,
@@ -61,6 +62,9 @@ All fields are optional. The Advisor model below is an explicit example of a mod
   "advisorUntrackedContent": false,
   "advisorDisableSameModel": true,
   "advisorOutcomeLogging": false,
+  "advisorJevTransport": "typesafe-compatible",
+  "advisorJevBaseUrl": "https://api.codiv.ai",
+  "advisorJevKeyProvider": "openrouter",
   "advisorToolPolicies": {
     "bash": "summary",
     "deploy": "exclude"
@@ -90,11 +94,12 @@ The `/advisor-settings` row opens a searchable multi-select menu containing the 
 
 ## Simple mode and persistent activation
 
-- `simpleMode` defaults to `false`. When enabled, `ask_advisor` and `/advisor-manual` remain available for voluntary second opinions, while plan/failure/completion rules, loop gates, blocking, call budgets, and session summaries are disabled. Context limits, result caps, redaction, and tool disclosure policies still apply.
+- `simpleMode` defaults to `false`. When enabled, `ask_advisor` remains available for voluntary second opinions when Advisor tools are enabled, and `/advisor-manual` remains available. Plan/failure/completion rules, loop gates, blocking, call budgets, and session summaries are disabled. Context limits, result caps, redaction, and tool disclosure policies still apply.
+- `advisorToolsEnabled` defaults to `true` to preserve on-demand tool access. When `false`, Pi removes `ask_advisor` and `record_advisor_outcome` from the active tool set for new, resumed, forked, and reloaded sessions. This explicit opt-out takes precedence over `alwaysOn`. Re-enable tools in `/advisor-settings`, or run `/advisor`; the latter clears the opt-out only after successful activation.
 - `alwaysOn` defaults to `false`. When enabled, Pi activates `ask_advisor` for new, resumed, forked, and reloaded sessions using each session's current chat model and thinking level. If there is no current model or the Advisor model is unavailable, startup reports the problem without activating; run `/advisor` after selecting a chat model. Subagents likewise keep their own current model and thinking level.
 - Any `/model` selection, restored session model, or model selected by cycling becomes the Executor for that session immediately; it does not change `advisor.json`.
-- `/advisor-off` turns `alwaysOn` off so the flow stays disabled in later sessions.
-- In Simple mode, settings keeps the Context window/history control alongside Simple mode and Always on. Advanced values remain saved and take effect when Simple mode is disabled.
+- `/advisor-off` persists `advisorToolsEnabled: false` and turns `alwaysOn` off, keeping model-facing Advisor tools disabled in later sessions. `/advisor-manual` remains available.
+- In Simple mode, settings keeps the Context window/history, Advisor tools, Simple mode, and Always on controls. Advanced values remain saved and take effect when Simple mode is disabled.
 - Settings changes are applied and persisted as they happen; Escape closes the screen without a separate Save action.
 
 ## Experimental Advisor Scout
@@ -133,17 +138,22 @@ Normal consultations preserve the provider's final Markdown and never block exec
 
 `advisorJevFilterEnabled` defaults to `false`. When enabled, one typed screening request checks each `ask_advisor` invocation. Only requests classified as both negligible-stakes and self-answerable are skipped; all others reach the Advisor unchanged.
 
-- **Provider selection**: `/advisor-settings` → **Jev/Decisions consultation filter** offers TypeSafe Jev, OpenRouter, and OpenAI Decisions. A provider is live-verified before the selected transport and filter-enabled state are saved together. The standalone unverified transport control is intentionally absent.
-- **`auto` compatibility**: `advisorJevTransport` remains `auto` by default. It keeps the existing TypeSafe-key → OpenRouter-login order. `typesafe` and `openrouter` continue to force those providers. `openai-decisions` is opt-in and is never chosen by `auto`.
-- **OpenAI Decisions**: uses the fixed public-beta model `gpt-6-luna` at `https://api.openai.com/v1/decisions`; the TypeSafe `advisorJevModel` setting does not select this model. It requires an OpenAI Platform API key and separate API billing. ChatGPT subscription OAuth from Pi's `openai` or `openai-codex` providers is not accepted as an API key. Pi's `openai` provider is reused only when its auth source is the `OPENAI_API_KEY` environment variable or a stored API-key credential. Otherwise, guided setup accepts a masked Platform key.
-- **Key storage**: entered OpenAI keys are stored in Bun.secrets when available, otherwise in `openai_api_key` under the configured Pi agent directory with mode `0600`. They are never written to `advisor.json` and remain separate from TypeSafe keys and Pi-managed credentials. Disable-and-clear removes only the selected provider's extension-owned key; it never deletes environment variables or Pi logins.
-- **Evidence and thresholds**: the OpenAI request formats only the existing bounded Jev state as text and sends named predicate/score questions. It adds no Git context, file attachments, images, or Scout output. The existing thresholds (`advisorJevFilterSkipConfidence` 0.85 and `advisorJevFilterNoulMargin` 0.35 by default) remain in effect, but have not been empirically calibrated for Decisions. Any missing, refused, malformed, or uncertain answer allows the Advisor consultation.
+The classifier selection and filter are separate settings rows. **Jev classifier** opens a searchable list of Pi classifier models whose providers have usable Pi authentication, plus the explicit **Jev API Key** option. Each selection is live-verified before it is saved. The **Jev/Decisions consultation filter** row only switches screening on and off; it stays off until an available classifier is selected. A classifier that later becomes unavailable fails open at runtime.
+
+- **Classifier selection**: `/advisor-settings` → **Jev classifier** offers available Pi classifier models identified by concrete `provider/model` refs. Provider authentication remains Pi-managed. Prices shown in the picker are the live Pi catalog input/output rates per million tokens; pricing metadata is not copied into `advisor.json`.
+- **Legacy settings**: existing `advisorJevTransport`, `advisorJevModel`, endpoint, provider, and `advisorJevPricePerMtok` fields are preserved for rollback compatibility but no longer route classifier calls or price native calls. Legacy settings/credentials are not automatically migrated into Pi authentication.
+- **Custom classifier endpoints**: Pi's `models.json` chat-compatible endpoint configuration does not register a classifier implementation. Install/configure a Pi provider extension that registers a classifier model and implementation, then select it from the picker.
+- **Jev API Key isolation**: selecting **Jev API Key** prompts for a masked TypeSafe key and sends it only as a request-scoped Pi classifier `apiKey`. It is stored in a separate `pi-advisor-jev-classifier` secure-store namespace (or a dedicated mode-0600 file fallback). No legacy Jev secret, environment variable, Pi provider login, or plaintext `advisor.json` key is read or migrated by this path.
+- **API-key choice verification**: the explicit API-key flow locates Pi's built-in `typesafe/jev-latest` classifier even when Pi has no TypeSafe login. The submitted key is passed directly to that request and stored only after a successful live check. A missing stored key fails open; it never falls back to Pi authentication or legacy credentials.
+- **Evidence and thresholds**: classifiers receive only the existing redacted and bounded Jev state, with no Git context, attachments, images, Scout output, or session summaries. Native bool probabilities and three-label stakes distributions feed the existing thresholds. Malformed results, missing models, provider errors, and timeouts fail open; caller cancellation propagates.
+- **Pricing and totals**: Pi's model catalog input/cache rates price classifier input and cache tokens. JEV output tokens are always free and output cost is forced to zero even when catalog metadata contains an output rate. Missing usage is shown as unavailable; explicit zero input rates stay zero. Screening usage is combined once with Advisor usage in the `ask_advisor` tool result and Pi's generic tools cost bucket. Manual and turn-gate classifier usage remains local-only because Pi has no supported lifecycle cost aggregation API.
+
 - **Fail-open and repeats**: a missing key, authentication failure, timeout, network error, or malformed response lets the consultation run; the outage is surfaced once per distinct failure. Exact repeats are still handled locally and free, even when filtering is off. `advisorJevFilterOverrideWindow` defaults to 10 turns; force-after-skip and automatic passthroughs are counted in the Session Advisor Summary. Skipped calls do not consume `advisorMaxCallsPerSession`.
-- **Usage and cost**: `advisorJevTimeoutMs` (8000 ms by default, including one retry) and `advisorJevDigestMaxChars` (4000 by default) apply across providers. TypeSafe/OpenRouter cost remains an estimate controlled by `advisorJevPricePerMtok` (default 0.042). Decisions token usage is recorded, but its cost is shown as unavailable; the extension does not apply that TypeSafe price or treat an unknown charge as zero. The [Decisions guide](https://developers.openai.com/api/docs/guides/decisions) and [general pricing page](https://developers.openai.com/api/docs/pricing) differ on `gpt-6-luna` cached/output billing, so the extension waits for endpoint-specific billing confirmation. A skip consumes no Advisor-call budget.
+- **Timeout**: `advisorJevTimeoutMs` (8000 ms by default) is a hard wall-clock deadline. Native classifier calls disable provider retries so cancellation and deadlines remain bounded. A skip consumes no Advisor-call budget.
 
-## Proactive Jev/Decisions turn gate
+## Proactive Jev classifier turn gate
 
-`advisorJevTurnGateEveryTurns` defaults to `0` (off). When set to N, every Nth completed turn **without a consultation** asks the selected Jev/Decisions provider whether a senior advisor should weigh in now. A confident yes (`advisorJevTurnGateNoulThreshold`, default `0.8`) runs a real Advisor consultation delivered as a steer message between turns; a no, uncertainty, or provider failure keeps the status quo. Turn-gate consultations consume the shared `advisorMaxCallsPerSession` budget, appear in the Session Advisor Summary under trigger `turn-gate`, and reset the without-consultation counter.
+`advisorJevTurnGateEveryTurns` defaults to `0` (off). When set to N, every Nth completed turn **without a consultation** asks the selected Jev classifier whether a senior advisor should weigh in now. A confident yes (`advisorJevTurnGateNoulThreshold`, default `0.8`) runs a real Advisor consultation delivered as a steer message between turns; a no, uncertainty, or provider failure keeps the status quo. Turn-gate consultations consume the shared `advisorMaxCallsPerSession` budget, appear in the Session Advisor Summary under trigger `turn-gate`, and reset the without-consultation counter.
 
 ## Automatic loop gate
 

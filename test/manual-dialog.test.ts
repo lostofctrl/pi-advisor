@@ -19,23 +19,28 @@ describe("Manual Advisor TUI modal", () => {
       { advisorGitContext: "full", advisorHerdrIntegration: false },
       async (agentDir) => {
         const state = new AdvisorSessionState();
+
         const calls: {
           gitContext: GitContextLevel | undefined;
           question: string | undefined;
         }[] = [];
+
         const harness = modalHarness(
           agentDir,
           state,
           (dialog) => {
             expect(dialog.render(100).join("\n")).toContain("Check");
             dialog.handleInput(" ");
+
             for (const character of "migration") {
               dialog.handleInput(character);
             }
+
             dialog.handleInput(String.fromCodePoint(13));
           },
           (_ctx, question, _signal, _onChunk, _onScout, gitContext) => {
             calls.push({ gitContext, question });
+
             return Promise.resolve({
               markdown: "Review complete.",
               thinkingText: "",
@@ -76,18 +81,22 @@ describe("Manual Advisor TUI modal", () => {
       { advisorGitContext: "summary", advisorHerdrIntegration: false },
       async (agentDir) => {
         const state = new AdvisorSessionState();
+
         let resolveConsult!: (result: {
           markdown: string;
           thinkingText: string;
         }) => void;
+
         const pending = new Promise<{
           markdown: string;
           thinkingText: string;
         }>((resolve) => {
           resolveConsult = resolve;
         });
+
         let onChunk: ((thinking: string, text: string) => void) | undefined;
         let onScout: ((event: any) => void) | undefined;
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -95,6 +104,7 @@ describe("Manual Advisor TUI modal", () => {
           (_ctx, _question, _signal, chunk, scout) => {
             onChunk = chunk;
             onScout = scout;
+
             return pending;
           }
         );
@@ -151,12 +161,14 @@ describe("Manual Advisor TUI modal", () => {
       { advisorGitContext: "full", advisorHerdrIntegration: false },
       async (agentDir) => {
         const state = new AdvisorSessionState();
+
         let received:
           | {
               gitContext: GitContextLevel | undefined;
               question: string | undefined;
             }
           | undefined;
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -169,6 +181,7 @@ describe("Manual Advisor TUI modal", () => {
           },
           (_ctx, question, _signal, _onChunk, _onScout, gitContext) => {
             received = { gitContext, question };
+
             return Promise.resolve({
               markdown: "General review.",
               thinkingText: "",
@@ -195,12 +208,14 @@ describe("Manual Advisor TUI modal", () => {
       async (agentDir) => {
         const state = new AdvisorSessionState();
         let consultations = 0;
+
         const harness = modalHarness(
           agentDir,
           state,
           (dialog) => dialog.handleInput(String.fromCodePoint(27)),
           () => {
             consultations += 1;
+
             return Promise.resolve({
               markdown: "Should not run.",
               thinkingText: "",
@@ -229,11 +244,13 @@ describe("Manual Advisor TUI modal", () => {
         const state = new AdvisorSessionState();
         const signals: AbortSignal[] = [];
         let modalCalls = 0;
+
         const harness = modalHarness(
           agentDir,
           state,
           (dialog) => {
             modalCalls += 1;
+
             if (modalCalls === 1) {
               dialog.handleInput(String.fromCodePoint(13));
             } else {
@@ -244,7 +261,9 @@ describe("Manual Advisor TUI modal", () => {
             if (!signal) {
               throw new Error("Missing manual consultation signal.");
             }
+
             signals.push(signal);
+
             return new Promise(() => {});
           }
         );
@@ -281,6 +300,7 @@ describe("Manual Advisor TUI modal", () => {
       async (agentDir) => {
         const state = new AdvisorSessionState();
         let consultations = 0;
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -290,6 +310,7 @@ describe("Manual Advisor TUI modal", () => {
           },
           () => {
             consultations += 1;
+
             return Promise.resolve({
               markdown: "Should not run.",
               thinkingText: "",
@@ -319,6 +340,7 @@ describe("Manual Advisor TUI modal", () => {
       async (agentDir) => {
         const state = new AdvisorSessionState();
         const signals: AbortSignal[] = [];
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -329,7 +351,9 @@ describe("Manual Advisor TUI modal", () => {
             if (!signal) {
               throw new Error("Missing manual consultation signal.");
             }
+
             signals.push(signal);
+
             return new Promise(() => {});
           }
         );
@@ -361,6 +385,7 @@ describe("Manual Advisor TUI modal", () => {
         const state = new AdvisorSessionState();
         let requested: GitContextLevel | undefined;
         let effective: GitContextLevel | undefined;
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -380,6 +405,7 @@ describe("Manual Advisor TUI modal", () => {
             const allowed = getAdvisorSettings().gitContext;
             requested = gitContext;
             effective = clampGitContextLevel(gitContext ?? allowed, allowed);
+
             return Promise.resolve({
               markdown: "Clamped review.",
               thinkingText: "",
@@ -404,6 +430,7 @@ describe("Manual Advisor TUI modal", () => {
       async (agentDir) => {
         const state = new AdvisorSessionState();
         let receivedQuestion: string | undefined;
+
         const harness = modalHarness(
           agentDir,
           state,
@@ -413,6 +440,7 @@ describe("Manual Advisor TUI modal", () => {
           (_ctx, question, _signal, _onChunk, _onScout, gitContext) => {
             receivedQuestion = question;
             expect(gitContext).toBeUndefined();
+
             return Promise.resolve({
               markdown: "RPC review.",
               thinkingText: "",
