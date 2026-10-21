@@ -14,6 +14,7 @@ import {
   advisorFallbackModelRef,
   advisorFailureGateRef,
   advisorFailureModeRef,
+  advisorForceSettleReviewRef,
   advisorGitContextMaxCharsRef,
   advisorGitContextRef,
   advisorHerdrIntegrationRef,
@@ -246,6 +247,12 @@ export const CONFIG_SCHEMA = {
     current: () => configuredModelRef(advisorFallbackModelRef),
     persisted: true,
     type: "string",
+  },
+  advisorForceSettleReview: {
+    accepted: "true or false",
+    current: () => advisorForceSettleReviewRef,
+    persisted: true,
+    type: "boolean",
   },
   advisorGitContext: {
     accepted: GIT_CONTEXT_LEVELS.join(", "),

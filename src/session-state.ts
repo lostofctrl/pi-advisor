@@ -17,7 +17,11 @@ import type { AdvisorUsageTotals } from "./usage.ts";
 
 export type GateDecision = "proceed" | "revise" | "blocked";
 
-export type ConsultationTrigger = "manual" | "executor-requested" | "turn-gate";
+export type ConsultationTrigger =
+  | "manual"
+  | "executor-requested"
+  | "turn-gate"
+  | "settle-review";
 
 export type GateTrigger =
   | "repeated-tool-call"
@@ -212,6 +216,8 @@ export class AdvisorSessionState {
   readonly #followUps: AdvisorFollowUpCache;
   #sessionTurnOrdinal = 0;
   #turnsSinceConsultation = 0;
+  #consultedSinceInput = false;
+  #settleReviewed = false;
 
   constructor(now?: () => number) {
     this.#followUps = new AdvisorFollowUpCache(now);
@@ -228,6 +234,8 @@ export class AdvisorSessionState {
     this.#followUps.clear();
     this.#sessionTurnOrdinal = 0;
     this.#turnsSinceConsultation = 0;
+    this.#consultedSinceInput = false;
+    this.#settleReviewed = false;
   }
 
   clearBlocked() {
@@ -366,6 +374,32 @@ export class AdvisorSessionState {
   recordInvocation(record: AdvisorInvocationRecord) {
     this.#usage.invocations.push(record);
     addAdvisorUsage(this.#usage.totals, record.usage);
+
+    if (record.kind === "markdown") {
+      this.#consultedSinceInput = true;
+    }
+  }
+
+  /** True once a discussion consultation ran since the last user input. Gate
+   * decisions do not count: they decide whether to proceed, not review work. */
+  get consultedSinceInput() {
+    return this.#consultedSinceInput;
+  }
+
+  /** True once this run already got its automatic settle review. */
+  get settleReviewed() {
+    return this.#settleReviewed;
+  }
+
+  markSettleReviewed() {
+    this.#settleReviewed = true;
+  }
+
+  /** A new user input starts a fresh run: the next settle may be reviewed
+   * again, and the earlier consultation no longer suppresses it. */
+  beginUserInput() {
+    this.#consultedSinceInput = false;
+    this.#settleReviewed = false;
   }
   issueAdvice(
     id: string,
@@ -504,6 +538,7 @@ export class AdvisorSessionState {
           "manual",
           "executor-requested",
           "turn-gate",
+          "settle-review",
           "repeated-tool-call",
           "completion-review",
           "custom-rule",

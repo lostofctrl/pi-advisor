@@ -9,6 +9,7 @@ const BOOLEAN_SETTING_FIELDS = [
   "completionGate",
   "disableSameModel",
   "failureGate",
+  "forceSettleReview",
   "herdrIntegration",
   "outcomeLogging",
   "planGate",

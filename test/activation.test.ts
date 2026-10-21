@@ -1179,4 +1179,40 @@ describe("Advisor activation flow", () => {
       );
     });
   });
+
+  test("renders wrapper and near-miss verdicts consistently", async () => {
+    await withAgentDir({}, () => {
+      const { pi, renderers } = activationHarness();
+      registerCommands(pi);
+
+      const render = (text: string) =>
+        renderers
+          .get("advisor-manual-result")(
+            { content: text, details: { advisor: "test/model", text } },
+            { expanded: true },
+            plainTheme
+          )
+          .render(120)
+          .join("\n");
+
+      // Wrappers still mean the sound verdict.
+      for (const text of [
+        "**Verdict: sound**",
+        "### Verdict: sound",
+        "\n\n  Verdict: sound\nNothing to change.",
+        "verdict: SOUND",
+      ]) {
+        expect(render(text)).toContain("◆ ADVISOR · SOUND");
+      }
+
+      // Trailing text or a near miss is shown as a response, not a sound one.
+      for (const text of [
+        "Verdict: sound, but X should be checked",
+        "Verdict: soundness unclear",
+        "**Verdict: minor uncertainty**",
+      ]) {
+        expect(render(text)).toContain("◆ ADVISOR RESPONSE");
+      }
+    });
+  });
 });

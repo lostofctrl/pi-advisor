@@ -23,6 +23,7 @@ export type OutcomeTrigger =
   | "manual"
   | "executor-requested"
   | "turn-gate"
+  | "settle-review"
   | "repeated-tool-call";
 
 export const ADOPTIONS: OutcomeAdoption[] = [
@@ -42,6 +43,7 @@ export const OUTCOME_TRIGGERS: OutcomeTrigger[] = [
   "manual",
   "executor-requested",
   "turn-gate",
+  "settle-review",
   "repeated-tool-call",
 ];
 

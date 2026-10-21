@@ -6,11 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Unreleased
 
+### Added
+
+- `advisorForceSettleReview` (default `true`): when a run finishes with outcome `completed`, the Advisor reviews the work once before the run settles. `Verdict: sound` only displays; any other verdict reaches the executor as a custom message with exactly one continuation so the concern is addressed before it stops. Skipped in Simple mode, when the session is blocked, when `ask_advisor` already ran since the last user input, when the Advisor model is disallowed, or when the shared call budget is spent. Reviews use the `settle-review` trigger, appear in the Session Advisor Summary, and consume the same `advisorMaxCallsPerSession` budget.
+
 ### Changed
 
 - Use the current chat model and thinking level as the Executor; `/advisor` no longer changes the active model or persists separate Executor settings. Existing `executor` and `executorEffort` values are ignored.
 - Resolved the Advisor configuration file (`advisor.json`) through `PI_ADVISOR_CONFIG_PATH` (absolute path override), then a namespaced `<agentDir>/pi-web/advisor.json` default, falling back to the legacy shared `<agentDir>/advisor.json` only while the namespaced file does not exist yet. Pi CLI's official package is unaffected; this fork's bundle keeps its configuration separate from the CLI's.
 - Updated Oxfmt to 0.74.0.
+- Extended the Advisor invocation guidance: with the settle review on, it tells the executor not to call `ask_advisor` merely to re-review finished work.
 
 ## 0.14.1 - 2026-10-19
 

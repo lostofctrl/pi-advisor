@@ -129,6 +129,7 @@ describe("outcome log", () => {
       "executor-requested": 1,
       manual: 2,
       "repeated-tool-call": 1,
+      "settle-review": 0,
       "turn-gate": 1,
     });
     expect(stats.adoption).toEqual({

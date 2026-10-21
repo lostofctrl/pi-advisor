@@ -111,6 +111,7 @@ const expectedFiles = [
   "src/tools/render-common.ts",
   "src/tools/scout-status.ts",
   "src/tools/session.ts",
+  "src/tools/settle-review.ts",
   "src/tools/types.ts",
   "src/ui-guard.ts",
   "src/ui.ts",

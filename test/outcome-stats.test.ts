@@ -78,6 +78,7 @@ describe("Advisor outcome stats", () => {
                 "executor-requested": 1,
                 manual: 1,
                 "repeated-tool-call": 0,
+                "settle-review": 0,
                 "turn-gate": 1,
               },
               distinctAdvices: 3,

@@ -22,6 +22,14 @@ interface CallMessageDetails {
 // Renderers must tolerate partial details from replayed or older messages.
 type TurnGateResultDetails = Partial<TurnGateResultRecord>;
 
+interface SettleReviewResultDetails {
+  advisor?: string;
+  agentRulesBytes?: number;
+  text?: string;
+  usage?: unknown;
+  verdict?: "sound" | "concern";
+}
+
 interface LoopResultDetails {
   advisor?: string;
   agentRulesBytes?: number;
@@ -100,6 +108,58 @@ const scoutResultRenderer: EntryRenderer<ScoutToolDetails> = (
     Boolean(expanded),
     theme
   );
+
+  return box;
+};
+
+const settleReviewResultRenderer: MessageRenderer<SettleReviewResultDetails> = (
+  message,
+  { expanded },
+  theme
+) => {
+  const { details } = message;
+  const concerned = details?.verdict !== "sound";
+  const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+  box.addChild(
+    new Text(
+      theme.fg(
+        concerned ? "warning" : "success",
+        theme.bold("◆ ADVISOR · SETTLE REVIEW")
+      ),
+      0,
+      0
+    )
+  );
+
+  if (details?.advisor) {
+    box.addChild(new Text(theme.fg("dim", `  ${details.advisor}`), 0, 0));
+  }
+
+  addUsageLine(box, details, theme);
+
+  if (details?.text) {
+    box.addChild(
+      new Markdown(
+        adviceForDisplay(details.text, Boolean(expanded)),
+        0,
+        0,
+        getMarkdownTheme()
+      )
+    );
+  } else {
+    box.addChild(
+      new Text(
+        theme.fg(
+          "error",
+          isString(message.content)
+            ? message.content
+            : "Advisor settle review failed."
+        ),
+        0,
+        0
+      )
+    );
+  }
 
   return box;
 };
@@ -203,6 +263,10 @@ export const registerToolRenderers = (pi: ExtensionAPI): void => {
   pi.registerMessageRenderer?.(
     "advisor-turn-gate-result",
     turnGateResultRenderer
+  );
+  pi.registerMessageRenderer?.(
+    "advisor-settle-review-result",
+    settleReviewResultRenderer
   );
   pi.registerMessageRenderer?.("advisor-loop-call", callQuestionRenderer);
   pi.registerMessageRenderer?.("advisor-loop-result", loopResultRenderer);

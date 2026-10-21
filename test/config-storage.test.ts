@@ -412,6 +412,7 @@ describe("Config schema consistency", () => {
       "advisorEffort",
       "advisorFailureGate",
       "advisorFallbackModel",
+      "advisorForceSettleReview",
       "advisorGitContext",
       "advisorGitContextMaxChars",
       "advisorHerdrIntegration",
@@ -469,6 +470,7 @@ describe("Config schema consistency", () => {
       "advisorEffort",
       "advisorFailureGate",
       "advisorFallbackModel",
+      "advisorForceSettleReview",
       "advisorGitContext",
       "advisorGitContextMaxChars",
       "advisorHerdrIntegration",
@@ -509,7 +511,7 @@ describe("Config schema consistency", () => {
       "showUsageFooter",
       "simpleMode",
     ]);
-    expect(SAVED_CONFIG_KEYS).toHaveLength(50);
+    expect(SAVED_CONFIG_KEYS).toHaveLength(51);
     expect(CONFIG_SCHEMA.advisorOutcomeLogging.persisted).toBe(false);
   });
 });

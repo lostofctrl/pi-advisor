@@ -98,6 +98,7 @@ export interface AdvisorSettings {
   effort?: string;
   failureGate: boolean;
   failureMode?: GateFailureMode;
+  forceSettleReview?: boolean;
   gitContext?: GitContextLevel;
   gitContextMaxChars?: number;
   herdrIntegration?: boolean;

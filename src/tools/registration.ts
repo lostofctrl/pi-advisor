@@ -14,6 +14,7 @@ import { registerOutcomeTool } from "./register-outcome.ts";
 import { registerToolRenderers } from "./register-renderers.ts";
 import { ScoutStatusManager } from "./scout-status.ts";
 import { sessionStateFor } from "./session.ts";
+import { registerSettleReview } from "./settle-review.ts";
 import type {
   ToolRegistrationContext,
   ToolRegistrationDependencies,
@@ -63,4 +64,11 @@ export const registerAdvisorTool = (
       }),
     turnGate
   );
+
+  registerSettleReview(pi, {
+    activeTools: () => pi.getActiveTools(),
+    consult: registration.consult,
+    herdrActivity: registration.herdrActivity,
+    session,
+  });
 };

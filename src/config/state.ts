@@ -35,6 +35,7 @@ export let contextMaxCharsRef = DEFAULT_CONTEXT_MAX_CHARS;
 export let advisorPlanGateRef = true;
 export let advisorFailureGateRef = true;
 export let advisorCompletionGateRef = true;
+export let advisorForceSettleReviewRef = true;
 export let advisorCustomInvocationRef: string | undefined;
 export let advisorDisableSameModelRef = true;
 export let advisorCollapseResponsesRef = false;
@@ -140,6 +141,10 @@ export const setAdvisorFailureGateRef = (enabled: boolean) => {
 
 export const setAdvisorCompletionGateRef = (enabled: boolean) => {
   advisorCompletionGateRef = enabled;
+};
+
+export const setAdvisorForceSettleReviewRef = (enabled: boolean) => {
+  advisorForceSettleReviewRef = enabled;
 };
 
 export const setAdvisorCustomInvocationRef = (rule: string | undefined) => {
@@ -338,6 +343,7 @@ export const getAdvisorSettings = () => ({
   failureGate: advisorFailureGateRef,
   failureMode: advisorFailureModeRef,
   fallbackModel: advisorFallbackModelRef,
+  forceSettleReview: advisorForceSettleReviewRef,
   gitContext: advisorGitContextRef,
   gitContextMaxChars: advisorGitContextMaxCharsRef,
   herdrIntegration: advisorHerdrIntegrationRef,

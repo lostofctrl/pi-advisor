@@ -82,6 +82,7 @@ export interface AdvisorConfig {
   advisorDisableSameModel?: boolean;
   advisorEffort?: string;
   advisorFailureGate?: boolean;
+  advisorForceSettleReview?: boolean;
   advisorGitContext?: GitContextLevel;
   advisorGitContextMaxChars?: number;
   advisorHerdrIntegration?: boolean;

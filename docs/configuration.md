@@ -34,6 +34,7 @@ All fields are optional. The Advisor model below is an explicit example of a mod
   "advisorPlanGate": true,
   "advisorFailureGate": true,
   "advisorCompletionGate": true,
+  "advisorForceSettleReview": true,
   "advisorCustomInvocation": "before changing a production deployment",
   "advisorCollapseResponses": false,
 
@@ -154,6 +155,17 @@ The classifier selection and filter are separate settings rows. **Jev classifier
 ## Proactive Jev classifier turn gate
 
 `advisorJevTurnGateEveryTurns` defaults to `0` (off). When set to N, every Nth completed turn **without a consultation** asks the selected Jev classifier whether a senior advisor should weigh in now. A confident yes (`advisorJevTurnGateNoulThreshold`, default `0.8`) runs a real Advisor consultation delivered as a steer message between turns; a no, uncertainty, or provider failure keeps the status quo. Turn-gate consultations consume the shared `advisorMaxCallsPerSession` budget, appear in the Session Advisor Summary under trigger `turn-gate`, and reset the without-consultation counter.
+
+## Automatic settle review
+
+`advisorForceSettleReview` defaults to `true`. When an agent run finishes with outcome `completed`, the extension consults the Advisor once, before the run settles, so finished work always gets one independent look. It is skipped when any of these hold: Simple mode is on, the session is blocked, `ask_advisor` already ran since the last user input, the Advisor model is disallowed, the shared call budget is exhausted, or this run was already reviewed.
+
+The Advisor is asked to name any material concern, unvalidated claim, or missing step that should be fixed before settling. The reply renders under `◆ ADVISOR · SETTLE REVIEW`.
+
+- **`Verdict: sound`** (first non-empty line) displays only, and the run settles normally.
+- **Any other verdict** delivers the review to the executor as a custom message and grants exactly one continuation so the concern is addressed before stopping.
+
+A new user input re-arms the review; a failed review never retries on the same run, so it cannot loop. Settle reviews appear in the Session Advisor Summary under trigger `settle-review` and consume the shared `advisorMaxCallsPerSession` budget. Turn this setting off in `/advisor-settings` or with `/advisor-config set advisorForceSettleReview false`.
 
 ## Automatic loop gate
 

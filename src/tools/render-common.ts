@@ -114,8 +114,12 @@ export const renderAdvisorCallBox = (
 
 const COLLAPSED_ADVICE_LINES = 12;
 
-// The system prompt requires this exact first line, so the match is exact too.
-const SOUND_VERDICT = /^Verdict:\s*sound$/u;
+// The system prompt asks for `Verdict: sound` as the first line and forbids it
+// when any uncertainty, risk, or recommendation remains. Emphasis, heading and
+// quote wrappers are tolerated (`**Verdict: sound**` still means sound), but
+// anything after the verdict means the model had more to say, and a gate must
+// treat that as a concern rather than drop it.
+const SOUND_VERDICT = /^[*_`~>#\s]*verdict:\s*sound[*_`~\s.,!?]*$/iu;
 
 export const hasSoundVerdict = (advice: string) =>
   SOUND_VERDICT.test(

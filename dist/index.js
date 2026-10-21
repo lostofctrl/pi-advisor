@@ -56,6 +56,7 @@ var contextMaxCharsRef = DEFAULT_CONTEXT_MAX_CHARS;
 var advisorPlanGateRef = true;
 var advisorFailureGateRef = true;
 var advisorCompletionGateRef = true;
+var advisorForceSettleReviewRef = true;
 var advisorCustomInvocationRef;
 var advisorDisableSameModelRef = true;
 var advisorCollapseResponsesRef = false;
@@ -135,6 +136,9 @@ var setAdvisorFailureGateRef = (enabled) => {
 };
 var setAdvisorCompletionGateRef = (enabled) => {
   advisorCompletionGateRef = enabled;
+};
+var setAdvisorForceSettleReviewRef = (enabled) => {
+  advisorForceSettleReviewRef = enabled;
 };
 var setAdvisorCustomInvocationRef = (rule) => {
   advisorCustomInvocationRef = rule?.trim() || undefined;
@@ -281,6 +285,7 @@ var getAdvisorSettings = () => ({
   failureGate: advisorFailureGateRef,
   failureMode: advisorFailureModeRef,
   fallbackModel: advisorFallbackModelRef,
+  forceSettleReview: advisorForceSettleReviewRef,
   gitContext: advisorGitContextRef,
   gitContextMaxChars: advisorGitContextMaxCharsRef,
   herdrIntegration: advisorHerdrIntegrationRef,
@@ -601,6 +606,12 @@ var CONFIG_SCHEMA = {
     current: () => configuredModelRef(advisorFallbackModelRef),
     persisted: true,
     type: "string"
+  },
+  advisorForceSettleReview: {
+    accepted: "true or false",
+    current: () => advisorForceSettleReviewRef,
+    persisted: true,
+    type: "boolean"
   },
   advisorGitContext: {
     accepted: GIT_CONTEXT_LEVELS.join(", "),
@@ -956,6 +967,7 @@ var resetDefaults = () => {
   setAdvisorPlanGateRef(true);
   setAdvisorFailureGateRef(true);
   setAdvisorCompletionGateRef(true);
+  setAdvisorForceSettleReviewRef(true);
   setAdvisorCustomInvocationRef(undefined);
   setAdvisorDisableSameModelRef(true);
   setAdvisorCollapseResponsesRef(false);
@@ -1020,6 +1032,7 @@ var applyConfig = (config) => {
   applyOptionalConfig(config, "advisorPlanGate", setAdvisorPlanGateRef);
   applyOptionalConfig(config, "advisorFailureGate", setAdvisorFailureGateRef);
   applyOptionalConfig(config, "advisorCompletionGate", setAdvisorCompletionGateRef);
+  applyOptionalConfig(config, "advisorForceSettleReview", setAdvisorForceSettleReviewRef);
   applyOptionalConfig(config, "advisorCustomInvocation", setAdvisorCustomInvocationRef);
   applyOptionalConfig(config, "advisorDisableSameModel", setAdvisorDisableSameModelRef);
   applyOptionalConfig(config, "advisorCollapseResponses", setAdvisorCollapseResponsesRef);
@@ -1870,8 +1883,8 @@ class HerdrAdvisorBlock {
   emitBlocked;
   report;
   enabled;
-  constructor(report = sendToHerdr, enabled = () => true, emitBlocked = safeEmitBlocked) {
-    this.emitBlocked = emitBlocked;
+  constructor(report = sendToHerdr, enabled = () => true, emitBlocked2 = safeEmitBlocked) {
+    this.emitBlocked = emitBlocked2;
     this.report = report;
     this.enabled = enabled;
   }
@@ -2990,8 +3003,8 @@ var toolResultEntry = (message, toolResultMaxLines, toolResultMaxBytes, policies
     return `[Tool Result for ${toolName}] (excluded by Advisor tool policy)`;
   }
   if (policy === "summary") {
-    const capped = capToolResult(source, toolResultMaxLines, toolResultMaxBytes);
-    return `[Tool Result for ${toolName}] (output omitted by Advisor tool policy: summary; status: ${status}; ${capped.totalLines} lines, ${capped.totalBytes} bytes; source output was${capped.truncated ? "" : " not"} truncated)`;
+    const capped2 = capToolResult(source, toolResultMaxLines, toolResultMaxBytes);
+    return `[Tool Result for ${toolName}] (output omitted by Advisor tool policy: summary; status: ${status}; ${capped2.totalLines} lines, ${capped2.totalBytes} bytes; source output was${capped2.truncated ? "" : " not"} truncated)`;
   }
   const disclosed = redact ? redactSecrets(source) : source;
   const capped = capToolResult(disclosed, toolResultMaxLines, toolResultMaxBytes);
@@ -3033,17 +3046,17 @@ var selectRecentEntries = (entries, maxChars) => {
   }
   const newestTruncated = "[Newest entry truncated]";
   if (entries.length === 1) {
-    const prefix = `${newestTruncated}${separator}`;
-    return `${prefix}${entries[0].slice(0, Math.max(0, maxChars - prefix.length))}`.slice(0, maxChars);
+    const prefix2 = `${newestTruncated}${separator}`;
+    return `${prefix2}${entries[0].slice(0, Math.max(0, maxChars - prefix2.length))}`.slice(0, maxChars);
   }
   const selected = [];
   let selectedLength = 0;
   for (let index = entries.length - 1;index >= 0; index -= 1) {
     const entry = entries[index];
     const candidateCount = selected.length + 1;
-    const omitted = entries.length - candidateCount;
+    const omitted2 = entries.length - candidateCount;
     const candidateLength = selectedLength + entry.length + (selected.length > 0 ? separator.length : 0);
-    if (omissionMarker(omitted).length + separator.length + candidateLength > maxChars) {
+    if (omissionMarker(omitted2).length + separator.length + candidateLength > maxChars) {
       break;
     }
     selected.unshift(entry);
@@ -3833,15 +3846,15 @@ var runAdvisorScout = async (ctx, manifest, parentSignal, onEvent, timeoutMs = a
     return { cancelled: true, ok: false };
   };
   const fallback = (category, message, usage) => {
-    const outcome = {
+    const outcome2 = {
       category,
       message,
       metrics: usage === undefined ? baseMetrics(manifest, startedAt) : { ...baseMetrics(manifest, startedAt), usage },
       model: effectiveExecutorRef(ctx),
       ok: false
     };
-    publish({ outcome, type: "fallback" });
-    return outcome;
+    publish({ outcome: outcome2, type: "fallback" });
+    return outcome2;
   };
   if (parentSignal?.aborted) {
     return cancelled();
@@ -3962,12 +3975,12 @@ ${sources.join(`
 `)}
 </project_rules>`;
 };
-var advisorMessageText = (conversation, question, changes, draft, preferences, untracked, tracked, projectRules) => {
+var advisorMessageText = (conversation, question, changes, draft, preferences, untracked2, tracked2, projectRules) => {
   const safeConversation = escapeRepositoryText(conversation);
   const safeDraft = draft ? escapeRepositoryText(draft) : undefined;
   const safePreferences = preferences ? escapeRepositoryText(preferences) : undefined;
-  const safeUntracked = (untracked ?? []).map(escapeRepositoryText);
-  const safeTracked = (tracked ?? []).map(escapeRepositoryText);
+  const safeUntracked = (untracked2 ?? []).map(escapeRepositoryText);
+  const safeTracked = (tracked2 ?? []).map(escapeRepositoryText);
   const projectRulesText = projectRulesBlock(projectRules);
   const text = `${safeConversation ? `<conversation>
 ${safeConversation}
@@ -4039,7 +4052,9 @@ var advisorInvocationGuidelines = () => {
   if (advisorFailureGateRef) {
     guidelines.push("Use ask_advisor after two consecutive materially equivalent failed attempts, when a fix recreates an earlier failure, or after two actions produce no measurable progress. Do not make another materially equivalent attempt before consulting.");
   }
-  if (advisorCompletionGateRef) {
+  if (advisorForceSettleReviewRef) {
+    guidelines.push("An Advisor review runs automatically when you finish, so do not call ask_advisor just to review completed work. Do call it for a specific assumption, trade-off, or plan decision that would change what you do next.");
+  } else if (advisorCompletionGateRef) {
     guidelines.push("Before declaring success, use ask_advisor with a concise draft naming changed work, validation, and remaining risks. A draft claim is not verification evidence. Skip this only for demonstrably trivial, low-risk work.");
   }
   if (advisorCustomInvocationRef) {
@@ -4083,8 +4098,8 @@ var assembleConsultationContext = async (options) => {
   const preferences = await readProjectPreferences(ctx, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef);
   const projectRules = advisorAgentsMdContextRef ? await readProjectRules(ctx, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef) : undefined;
   const draftText = options.draft ? redactAndCapText(options.draft, ATTACHMENT_TEXT_MAX_BYTES, advisorRedactSecretsRef) : undefined;
-  const untracked = await readUntrackedFiles(ctx.cwd, options.includeUntracked ?? [], advisorUntrackedContentRef, advisorRedactSecretsRef);
-  const tracked = await readTrackedFiles(ctx.cwd, options.includeTracked ?? [], advisorTrackedFileContentRef, advisorRedactSecretsRef, Math.max(0, ATTACHMENTS_TOTAL_MAX_BYTES - untracked.reduce((sum, item) => sum + item.bytes, 0)));
+  const untracked2 = await readUntrackedFiles(ctx.cwd, options.includeUntracked ?? [], advisorUntrackedContentRef, advisorRedactSecretsRef);
+  const tracked2 = await readTrackedFiles(ctx.cwd, options.includeTracked ?? [], advisorTrackedFileContentRef, advisorRedactSecretsRef, Math.max(0, ATTACHMENTS_TOTAL_MAX_BYTES - untracked2.reduce((sum, item) => sum + item.bytes, 0)));
   const supportsImages = options.supportsImages ?? false;
   const untrackedImages = await readImageFiles(ctx.cwd, options.includeUntracked ?? [], supportsImages && advisorUntrackedContentRef, "untracked", ADVISOR_IMAGES_TOTAL_MAX_BYTES, ADVISOR_IMAGES_MAX_COUNT);
   const trackedImages = await readImageFiles(ctx.cwd, options.includeTracked ?? [], supportsImages && advisorTrackedFileContentRef, "tracked", ADVISOR_IMAGES_TOTAL_MAX_BYTES - untrackedImages.images.reduce((sum, item) => sum + item.bytes, 0), ADVISOR_IMAGES_MAX_COUNT - untrackedImages.images.length);
@@ -4115,8 +4130,8 @@ var assembleConsultationContext = async (options) => {
     projectRules,
     scout: curated.scout,
     supportsImages,
-    tracked,
-    untracked
+    tracked: tracked2,
+    untracked: untracked2
   };
 };
 
@@ -4180,11 +4195,11 @@ var parseAutomaticDecision = (text) => {
     if (!subsequent) {
       continue;
     }
-    const repeated = namedGroups(subsequent).decision.trim().toLowerCase();
+    const repeated2 = namedGroups(subsequent).decision.trim().toLowerCase();
     if (openingFence) {
-      pendingFencedDecisions.push(repeated);
+      pendingFencedDecisions.push(repeated2);
     } else {
-      decisions.push(repeated);
+      decisions.push(repeated2);
     }
   }
   if (openingFence) {
@@ -4630,7 +4645,7 @@ ${theme.fg("dim", `  ${question}`)}` : `${label} ${title}`, 0, 0));
   return box;
 };
 var COLLAPSED_ADVICE_LINES = 12;
-var SOUND_VERDICT = /^Verdict:\s*sound$/u;
+var SOUND_VERDICT = /^[*_`~>#\s]*verdict:\s*sound[*_`~\s.,!?]*$/iu;
 var hasSoundVerdict = (advice) => SOUND_VERDICT.test((advice.split(`
 `).find((line) => line.trim()) ?? "").trim());
 var renderAdvisorResponseHeader = (sound, theme) => sound ? theme.fg("accent", theme.bold("◆ ADVISOR · SOUND")) : theme.fg("warning", theme.bold("◆ ADVISOR RESPONSE"));
@@ -5101,6 +5116,8 @@ class AdvisorSessionState {
   #followUps;
   #sessionTurnOrdinal = 0;
   #turnsSinceConsultation = 0;
+  #consultedSinceInput = false;
+  #settleReviewed = false;
   constructor(now) {
     this.#followUps = new AdvisorFollowUpCache(now);
   }
@@ -5115,6 +5132,8 @@ class AdvisorSessionState {
     this.#followUps.clear();
     this.#sessionTurnOrdinal = 0;
     this.#turnsSinceConsultation = 0;
+    this.#consultedSinceInput = false;
+    this.#settleReviewed = false;
   }
   clearBlocked() {
     this.#blockedReason = undefined;
@@ -5211,6 +5230,22 @@ class AdvisorSessionState {
   recordInvocation(record) {
     this.#usage.invocations.push(record);
     addAdvisorUsage(this.#usage.totals, record.usage);
+    if (record.kind === "markdown") {
+      this.#consultedSinceInput = true;
+    }
+  }
+  get consultedSinceInput() {
+    return this.#consultedSinceInput;
+  }
+  get settleReviewed() {
+    return this.#settleReviewed;
+  }
+  markSettleReviewed() {
+    this.#settleReviewed = true;
+  }
+  beginUserInput() {
+    this.#consultedSinceInput = false;
+    this.#settleReviewed = false;
   }
   issueAdvice(id, advice, trigger, draft = false, normalizedQuestion) {
     const issued = { advice, trigger };
@@ -5299,6 +5334,7 @@ class AdvisorSessionState {
       "manual",
       "executor-requested",
       "turn-gate",
+      "settle-review",
       "repeated-tool-call",
       "completion-review",
       "custom-rule"
@@ -5453,13 +5489,13 @@ var loadCommandConfig = (ctx) => {
   }
 };
 var prepareActivationModels = async (ctx, announce, advisorOverride) => {
-  const currentModelRef = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-  if (!currentModelRef) {
+  const currentModelRef2 = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+  if (!currentModelRef2) {
     notify(ctx, "Select a chat model before enabling Advisor flow", "error");
     return;
   }
   const storedRefs = getPersistedModelRefs();
-  const persisted = { ...storedRefs, executor: currentModelRef };
+  const persisted = { ...storedRefs, executor: currentModelRef2 };
   const availableRefs = getAvailableModelRefs(ctx);
   const availableRefSet = availableRefs ? new Set(availableRefs) : undefined;
   const explicitError = getExplicitModelError(ctx, advisorRef, "Advisor", advisorOverride, availableRefSet);
@@ -5467,7 +5503,7 @@ var prepareActivationModels = async (ctx, announce, advisorOverride) => {
     notify(ctx, explicitError, "error");
     return;
   }
-  const plan = planActivationModels(ctx, currentModelRef, advisorRef, undefined, persisted, false, advisorOverride, availableRefSet);
+  const plan = planActivationModels(ctx, currentModelRef2, advisorRef, undefined, persisted, false, advisorOverride, availableRefSet);
   if (!plan.selectAdvisor) {
     return { pendingExecutor: plan.pendingExecutor, pickedModels: false };
   }
@@ -5479,7 +5515,7 @@ var prepareActivationModels = async (ctx, announce, advisorOverride) => {
     advisor: advisorOverride || persisted.advisor ? advisorRef : "",
     advisorEffort: advisorEffortRef,
     advisorFallbackModel: advisorFallbackModelRef,
-    executor: currentModelRef,
+    executor: currentModelRef2,
     executorEffort: undefined,
     selectAdvisor: plan.selectAdvisor,
     selectExecutor: false
@@ -5568,14 +5604,14 @@ var activateAdvisor = async (runtime, args, ctx, announce = true) => {
   const { toolAvailabilityRevision } = runtime;
   const canContinue = () => runtime.toolAvailabilityRevision === toolAvailabilityRevision;
   const previous = liveRefSnapshot();
-  const restoreRefs = (attempted) => {
-    if (advisorRef === attempted.advisor) {
+  const restoreRefs = (attempted2) => {
+    if (advisorRef === attempted2.advisor) {
       setAdvisorRef(previous.advisor);
     }
-    if (advisorEffortRef === attempted.advisorEffort) {
+    if (advisorEffortRef === attempted2.advisorEffort) {
       setAdvisorEffortRef(previous.advisorEffort);
     }
-    if (contextMaxCharsRef === attempted.contextMaxChars) {
+    if (contextMaxCharsRef === attempted2.contextMaxChars) {
       setContextMaxCharsRef(previous.contextMaxChars);
     }
   };
@@ -5624,7 +5660,7 @@ Advisor flow ${sameModelAdvisorDisabled(ctx, activeModel) ? "configured" : "read
 };
 
 // src/commands/lifecycle.ts
-var registerCommandLifecycle = (runtime, activateAdvisor) => {
+var registerCommandLifecycle = (runtime, activateAdvisor2) => {
   runtime.pi.on("session_start", async (_event, ctx) => {
     runtime.resetSameModelNotice();
     try {
@@ -5636,7 +5672,7 @@ var registerCommandLifecycle = (runtime, activateAdvisor) => {
       }
       if (alwaysOnRef) {
         setAdvisorToolsActive(runtime.pi, false);
-        await activateAdvisor("", ctx, false);
+        await activateAdvisor2("", ctx, false);
       } else {
         runtime.updateSameModelNotice(ctx);
       }
@@ -5737,12 +5773,12 @@ var renderManualAdvisorDialog = (view) => {
   addLine(`${focusMarker("git")}${theme.bold(`Git repository context (max: ${gitCeiling}; ↑/↓ or Space to choose)`)}`);
   for (let index = 0;index < gitLevels.length; index += 1) {
     const level = gitLevels[index];
-    const copy = MANUAL_GIT_CONTEXT_COPY[level];
+    const copy2 = MANUAL_GIT_CONTEXT_COPY[level];
     const selected = index === gitIndex;
     const marker = selected ? "●" : "○";
     const optionFocus = focusTarget === "git" && selected ? "▸ " : "  ";
     const color = selected ? "accent" : "text";
-    addWrapped(`${optionFocus}${marker} ${copy.label} — ${copy.description}`, color);
+    addWrapped(`${optionFocus}${marker} ${copy2.label} — ${copy2.description}`, color);
   }
   addLine("");
   let interactionHint = "Enter submit · Shift+Enter newline · Tab/Shift+Tab focus · Esc cancel";
@@ -6018,9 +6054,9 @@ var readJevClassifierKey = async (deps = {}) => {
         name: JEV_CLASSIFIER_KEY_NAME,
         service: JEV_CLASSIFIER_KEY_SERVICE
       });
-      const key = storedValue?.trim();
-      if (key) {
-        return { key, source: "bun-secrets" };
+      const key2 = storedValue?.trim();
+      if (key2) {
+        return { key: key2, source: "bun-secrets" };
       }
     } catch {
       return { failed: true };
@@ -6587,9 +6623,9 @@ var startManualConsultation = async (runtime, ctx, question, controller, scoutSt
       question,
       text: markdown
     };
-    const normalizedUsage = snapshotAdvisorUsage(usage);
-    if (normalizedUsage) {
-      details.usage = normalizedUsage;
+    const normalizedUsage2 = snapshotAdvisorUsage(usage);
+    if (normalizedUsage2) {
+      details.usage = normalizedUsage2;
     }
     runtime.pi.sendMessage({
       content: `Manual Advisor consultation${question ? ` (${question})` : ""} — for your awareness; no action or follow-up consultation is needed unless the user asks:
@@ -6748,12 +6784,12 @@ var registerModelCommands = (runtime) => {
         ctx.ui.notify("Select a chat model before configuring Advisor", "error");
         return;
       }
-      const currentModelRef = `${ctx.model.provider}/${ctx.model.id}`;
+      const currentModelRef2 = `${ctx.model.provider}/${ctx.model.id}`;
       const selection = await selectAdvisorModels(ctx, {
         advisor: advisorRef,
         advisorEffort: advisorEffortRef,
         advisorFallbackModel: advisorFallbackModelRef,
-        executor: currentModelRef,
+        executor: currentModelRef2,
         executorEffort: undefined,
         selectAdvisor: true,
         selectExecutor: false
@@ -6808,6 +6844,7 @@ var OUTCOME_TRIGGERS = [
   "manual",
   "executor-requested",
   "turn-gate",
+  "settle-review",
   "repeated-tool-call"
 ];
 var MAX_LOG_BYTES = 1024 * 1024;
@@ -7017,12 +7054,12 @@ var formatAdvisorStats = ({
 ${error}`;
   }
   if (!stats || stats.total === 0) {
-    const ignored = malformedLines ? `
+    const ignored2 = malformedLines ? `
 
 Ignored ${malformedLines} malformed ledger line${malformedLines === 1 ? "" : "s"}.` : "";
     return `**No Advisor outcomes recorded yet.**
 
-Enable outcome logging and record an outcome after an Advisor response to build this report.${ignored}`;
+Enable outcome logging and record an outcome after an Advisor response to build this report.${ignored2}`;
   }
   const { validationByAdoption } = stats;
   const { followed } = validationByAdoption;
@@ -8008,7 +8045,7 @@ var createSettingsItems = ({
     id: "effort",
     label: "Advisor reasoning",
     values: withCurrentValue(currentEffort(settings.effort), effortLevels)
-  }, modelWhitelist, toggle("disableSameModel", "Disable same-model Advisor", "Skip advice when the active Executor and Advisor use the same provider/model; turn off to allow higher-effort same-model reviews.", settings.disableSameModel, true), toggle("scoutEnabled", "Experimental Advisor Scout", "Enable the experimental Scout before Advisor calls.", settings.scoutEnabled, false), scoutTimeoutItem(settings), toggle("showUsageDetails", "Show usage and cost details", "Show token usage and cost details in Advisor responses.", settings.showUsageDetails, true), toggle("showUsageFooter", "Show usage in footer", "Show the current Advisor usage summary in the footer.", settings.showUsageFooter, false), toggle("planGate", "Plan gate", "Ask the Advisor to review implementation plans.", settings.planGate, true), toggle("failureGate", "Failure gate", "Ask the Advisor to review repeated failures.", settings.failureGate, true), toggle("completionGate", "Completion gate", "Ask the Advisor to review work before declaring success.", settings.completionGate, true), toggle("collapseResponses", "Collapse long responses", "Collapse long Advisor responses in the transcript.", settings.collapseResponses, false), {
+  }, modelWhitelist, toggle("disableSameModel", "Disable same-model Advisor", "Skip advice when the active Executor and Advisor use the same provider/model; turn off to allow higher-effort same-model reviews.", settings.disableSameModel, true), toggle("scoutEnabled", "Experimental Advisor Scout", "Enable the experimental Scout before Advisor calls.", settings.scoutEnabled, false), scoutTimeoutItem(settings), toggle("showUsageDetails", "Show usage and cost details", "Show token usage and cost details in Advisor responses.", settings.showUsageDetails, true), toggle("showUsageFooter", "Show usage in footer", "Show the current Advisor usage summary in the footer.", settings.showUsageFooter, false), toggle("planGate", "Plan gate", "Ask the Advisor to review implementation plans.", settings.planGate, true), toggle("failureGate", "Failure gate", "Ask the Advisor to review repeated failures.", settings.failureGate, true), toggle("completionGate", "Completion gate", "Ask the Advisor to review work before declaring success.", settings.completionGate, true), toggle("forceSettleReview", "Force settle review", "Consult the Advisor automatically when the agent finishes, before it settles.", settings.forceSettleReview ?? true, true), toggle("collapseResponses", "Collapse long responses", "Collapse long Advisor responses in the transcript.", settings.collapseResponses, false), {
     currentValue: settings.customRule || "None",
     description: "Add a rule that triggers Advisor involvement.",
     id: "customRule",
@@ -8189,6 +8226,7 @@ var BOOLEAN_SETTING_FIELDS = [
   "completionGate",
   "disableSameModel",
   "failureGate",
+  "forceSettleReview",
   "herdrIntegration",
   "outcomeLogging",
   "planGate",
@@ -8542,6 +8580,7 @@ var applySessionSettings = (settings) => {
   setAdvisorFallbackModelRef(settings.fallbackModel);
   setAdvisorFailureGateRef(settings.failureGate);
   setAdvisorCompletionGateRef(settings.completionGate);
+  setAdvisorForceSettleReviewRef(settings.forceSettleReview ?? true);
   setAdvisorDisableSameModelRef(settings.disableSameModel ?? true);
   setAdvisorCollapseResponsesRef(settings.collapseResponses);
   setAdvisorCustomInvocationRef(settings.customRule);
@@ -9434,9 +9473,9 @@ var sendAutomaticGateResult = (pi, result) => {
     decision: result.decision,
     text: result.markdown
   };
-  const normalizedUsage = snapshotAdvisorUsage(result.usage);
-  if (normalizedUsage) {
-    details.usage = normalizedUsage;
+  const normalizedUsage2 = snapshotAdvisorUsage(result.usage);
+  if (normalizedUsage2) {
+    details.usage = normalizedUsage2;
   }
   pi.sendMessage({
     content: adviceForGateText(result),
@@ -9765,6 +9804,22 @@ var scoutResultRenderer = (entry, { expanded }, theme) => {
   renderScoutDetails(box, entry.data, Boolean(expanded), theme);
   return box;
 };
+var settleReviewResultRenderer = (message, { expanded }, theme) => {
+  const { details } = message;
+  const concerned = details?.verdict !== "sound";
+  const box = new Box4(1, 1, (text) => theme.bg("customMessageBg", text));
+  box.addChild(new Text7(theme.fg(concerned ? "warning" : "success", theme.bold("◆ ADVISOR · SETTLE REVIEW")), 0, 0));
+  if (details?.advisor) {
+    box.addChild(new Text7(theme.fg("dim", `  ${details.advisor}`), 0, 0));
+  }
+  addUsageLine(box, details, theme);
+  if (details?.text) {
+    box.addChild(new Markdown5(adviceForDisplay(details.text, Boolean(expanded)), 0, 0, getMarkdownTheme5()));
+  } else {
+    box.addChild(new Text7(theme.fg("error", isString(message.content) ? message.content : "Advisor settle review failed."), 0, 0));
+  }
+  return box;
+};
 var turnGateResultRenderer = (message, { expanded }, theme) => {
   const { details } = message;
   const box = new Box4(1, 1, (text) => theme.bg("customMessageBg", text));
@@ -9799,8 +9854,90 @@ var registerToolRenderers = (pi) => {
   pi.registerEntryRenderer?.("advisor-scout-result", scoutResultRenderer);
   pi.registerMessageRenderer?.("advisor-turn-gate-call", callQuestionRenderer);
   pi.registerMessageRenderer?.("advisor-turn-gate-result", turnGateResultRenderer);
+  pi.registerMessageRenderer?.("advisor-settle-review-result", settleReviewResultRenderer);
   pi.registerMessageRenderer?.("advisor-loop-call", callQuestionRenderer);
   pi.registerMessageRenderer?.("advisor-loop-result", loopResultRenderer);
+};
+
+// src/tools/settle-review.ts
+var SETTLE_REVIEW_RESULT = "advisor-settle-review-result";
+var SETTLE_REVIEW_QUESTION = "Review the work the executor just finished. Name any material concern, unvalidated claim, or missing step it should fix before settling.";
+var outageNotifier3 = createOutageNotifier((category, message) => `Advisor settle review failed (${category}); settling without an automatic review. ${message}`);
+var notifyFailureOnce2 = outageNotifier3.notify;
+var resetSettleReviewNotification = outageNotifier3.reset;
+var isSoundVerdict = (markdown) => hasSoundVerdict(markdown);
+var reviewContent = (markdown) => [
+  "An Advisor review ran automatically when you finished; you did not request it.",
+  "Address any material concern it raises before you finish. If the verdict is sound, finish normally without repeating the review.",
+  "",
+  markdown
+].join(`
+`);
+var createSettleReview = (registration) => {
+  const shouldReview = (event, ctx) => {
+    const { session } = registration;
+    return event.outcome === "completed" && !session.settleReviewed && advisorForceSettleReviewRef && !isSimpleMode() && !session.blocked && !session.consultedSinceInput && registration.activeTools().includes("ask_advisor") && advisorModelIsAllowed(ctx) && session.canConsult(getAdvisorMaxCallsPerSession());
+  };
+  return {
+    handle: async (event, ctx) => {
+      if (!shouldReview(event, ctx)) {
+        return;
+      }
+      registration.session.markSettleReviewed();
+      const { consult, herdrActivity, session } = registration;
+      const finishHerdrActivity = (herdrActivity ?? herdrAdvisorActivity.createScope()).start();
+      try {
+        session.consumeCall();
+        const consulted = await consult(ctx, SETTLE_REVIEW_QUESTION, ctx.signal, undefined, "settle-review");
+        session.resetTurnsSinceConsultation();
+        session.recordInvocation({
+          cost: advisorUsageCost(consulted.usage),
+          executionEffect: "continued",
+          kind: "markdown",
+          model: consulted.model,
+          trigger: "settle-review",
+          usage: consulted.usage
+        });
+        updateAdvisorUsageStatus(ctx, session);
+        const sound = isSoundVerdict(consulted.markdown);
+        return {
+          continue: !sound,
+          entries: [
+            {
+              content: reviewContent(consulted.markdown),
+              customType: SETTLE_REVIEW_RESULT,
+              details: {
+                advisor: consulted.model,
+                agentRulesBytes: consulted.agentRulesBytes,
+                text: consulted.markdown,
+                usage: consulted.usage,
+                verdict: sound ? "sound" : "concern"
+              },
+              display: true,
+              type: "custom_message"
+            }
+          ]
+        };
+      } catch (error) {
+        if (!ctx.signal?.aborted) {
+          notifyFailureOnce2(ctx, "error", error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        finishHerdrActivity();
+      }
+    },
+    noteUserInput: () => {
+      registration.session.beginUserInput();
+    }
+  };
+};
+var registerSettleReview = (pi, registration) => {
+  const review = createSettleReview(registration);
+  pi.on("input", () => {
+    review.noteUserInput();
+  });
+  pi.on("agent_before_settle", (event, ctx) => review.handle(event, ctx));
+  return review;
 };
 
 // src/tools/registration.ts
@@ -9835,6 +9972,12 @@ var registerAdvisorTool = (pi, session = sessionStateFor(pi), dependencies = {})
     await handler(turn, ctx);
     return advisorBudgetUpdate(turn, ctx, pi, session);
   }), turnGate);
+  registerSettleReview(pi, {
+    activeTools: () => pi.getActiveTools(),
+    consult: registration.consult,
+    herdrActivity: registration.herdrActivity,
+    session
+  });
 };
 
 // extensions/index.ts
@@ -9860,8 +10003,8 @@ function registerPiAdvisor(pi) {
   });
 }
 export {
-  consultAdvisor2 as consultAdvisor,
-  registerPiAdvisor as default,
+  runAdvisorGate2 as runAdvisorGate,
   parseAutomaticDecision2 as parseAutomaticDecision,
-  runAdvisorGate2 as runAdvisorGate
+  registerPiAdvisor as default,
+  consultAdvisor2 as consultAdvisor
 };

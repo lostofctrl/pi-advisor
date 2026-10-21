@@ -422,6 +422,13 @@ export const createSettingsItems = ({
       true
     ),
     toggle(
+      "forceSettleReview",
+      "Force settle review",
+      "Consult the Advisor automatically when the agent finishes, before it settles.",
+      settings.forceSettleReview ?? true,
+      true
+    ),
+    toggle(
       "collapseResponses",
       "Collapse long responses",
       "Collapse long Advisor responses in the transcript.",

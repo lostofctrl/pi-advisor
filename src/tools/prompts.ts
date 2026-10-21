@@ -4,6 +4,7 @@ import {
   advisorCompletionGateRef,
   advisorCustomInvocationRef,
   advisorFailureGateRef,
+  advisorForceSettleReviewRef,
   advisorPlanGateRef,
   contextMaxCharsRef,
   isSimpleMode,
@@ -169,7 +170,11 @@ export const advisorInvocationGuidelines = () => {
     );
   }
 
-  if (advisorCompletionGateRef) {
+  if (advisorForceSettleReviewRef) {
+    guidelines.push(
+      "An Advisor review runs automatically when you finish, so do not call ask_advisor just to review completed work. Do call it for a specific assumption, trade-off, or plan decision that would change what you do next."
+    );
+  } else if (advisorCompletionGateRef) {
     guidelines.push(
       "Before declaring success, use ask_advisor with a concise draft naming changed work, validation, and remaining risks. A draft claim is not verification evidence. Skip this only for demonstrably trivial, low-risk work."
     );
