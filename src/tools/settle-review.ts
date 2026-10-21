@@ -7,6 +7,7 @@ import type {
 
 import {
   advisorForceSettleReviewRef,
+  advisorRequireExecutorResponseRef,
   getAdvisorMaxCallsPerSession,
   isSimpleMode,
 } from "../config/state.ts";
@@ -140,9 +141,8 @@ export const createSettleReview = (
         const sound = isSoundVerdict(consulted.markdown);
 
         return {
-          // A sound verdict needs no reply, so it only displays; a concerned one
-          // has to reach the executor, so it continues exactly once.
-          continue: !sound,
+          // Continue concerns only when executor responses are enabled.
+          continue: advisorRequireExecutorResponseRef && !sound,
           entries: [
             {
               content: reviewContent(consulted.markdown),

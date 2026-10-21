@@ -429,6 +429,13 @@ export const createSettingsItems = ({
       true
     ),
     toggle(
+      "requireExecutorResponse",
+      "Require executor response",
+      "Continue the executor on automatic settle-review concerns; requires Force settle review.",
+      settings.requireExecutorResponse,
+      true
+    ),
+    toggle(
       "collapseResponses",
       "Collapse long responses",
       "Collapse long Advisor responses in the transcript.",

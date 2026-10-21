@@ -83,6 +83,7 @@ export interface AdvisorConfig {
   advisorEffort?: string;
   advisorFailureGate?: boolean;
   advisorForceSettleReview?: boolean;
+  advisorRequireExecutorResponse?: boolean;
   advisorGitContext?: GitContextLevel;
   advisorGitContextMaxChars?: number;
   advisorHerdrIntegration?: boolean;

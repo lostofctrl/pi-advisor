@@ -15,6 +15,7 @@ import {
   advisorFailureGateRef,
   advisorFailureModeRef,
   advisorForceSettleReviewRef,
+  advisorRequireExecutorResponseRef,
   advisorGitContextMaxCharsRef,
   advisorGitContextRef,
   advisorHerdrIntegrationRef,
@@ -409,6 +410,12 @@ export const CONFIG_SCHEMA = {
   advisorRedactSecrets: {
     accepted: "true or false",
     current: () => advisorRedactSecretsRef,
+    persisted: true,
+    type: "boolean",
+  },
+  advisorRequireExecutorResponse: {
+    accepted: "true or false",
+    current: () => advisorRequireExecutorResponseRef,
     persisted: true,
     type: "boolean",
   },

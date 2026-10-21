@@ -57,6 +57,7 @@ var advisorPlanGateRef = true;
 var advisorFailureGateRef = true;
 var advisorCompletionGateRef = true;
 var advisorForceSettleReviewRef = true;
+var advisorRequireExecutorResponseRef = true;
 var advisorCustomInvocationRef;
 var advisorDisableSameModelRef = true;
 var advisorCollapseResponsesRef = false;
@@ -139,6 +140,9 @@ var setAdvisorCompletionGateRef = (enabled) => {
 };
 var setAdvisorForceSettleReviewRef = (enabled) => {
   advisorForceSettleReviewRef = enabled;
+};
+var setAdvisorRequireExecutorResponseRef = (enabled) => {
+  advisorRequireExecutorResponseRef = enabled;
 };
 var setAdvisorCustomInvocationRef = (rule) => {
   advisorCustomInvocationRef = rule?.trim() || undefined;
@@ -309,6 +313,7 @@ var getAdvisorSettings = () => ({
   outcomeLogging: advisorOutcomeLoggingRef,
   planGate: advisorPlanGateRef,
   redactSecrets: advisorRedactSecretsRef,
+  requireExecutorResponse: advisorRequireExecutorResponseRef,
   scoutEnabled: advisorScoutEnabledRef,
   scoutTimeoutMs: advisorScoutTimeoutMsRef,
   sessionSummary: advisorSessionSummaryRef,
@@ -768,6 +773,12 @@ var CONFIG_SCHEMA = {
     persisted: true,
     type: "boolean"
   },
+  advisorRequireExecutorResponse: {
+    accepted: "true or false",
+    current: () => advisorRequireExecutorResponseRef,
+    persisted: true,
+    type: "boolean"
+  },
   advisorScoutEnabled: {
     accepted: "true or false",
     current: () => advisorScoutEnabledRef,
@@ -968,6 +979,7 @@ var resetDefaults = () => {
   setAdvisorFailureGateRef(true);
   setAdvisorCompletionGateRef(true);
   setAdvisorForceSettleReviewRef(true);
+  setAdvisorRequireExecutorResponseRef(true);
   setAdvisorCustomInvocationRef(undefined);
   setAdvisorDisableSameModelRef(true);
   setAdvisorCollapseResponsesRef(false);
@@ -1033,6 +1045,7 @@ var applyConfig = (config) => {
   applyOptionalConfig(config, "advisorFailureGate", setAdvisorFailureGateRef);
   applyOptionalConfig(config, "advisorCompletionGate", setAdvisorCompletionGateRef);
   applyOptionalConfig(config, "advisorForceSettleReview", setAdvisorForceSettleReviewRef);
+  applyOptionalConfig(config, "advisorRequireExecutorResponse", setAdvisorRequireExecutorResponseRef);
   applyOptionalConfig(config, "advisorCustomInvocation", setAdvisorCustomInvocationRef);
   applyOptionalConfig(config, "advisorDisableSameModel", setAdvisorDisableSameModelRef);
   applyOptionalConfig(config, "advisorCollapseResponses", setAdvisorCollapseResponsesRef);
@@ -8045,7 +8058,7 @@ var createSettingsItems = ({
     id: "effort",
     label: "Advisor reasoning",
     values: withCurrentValue(currentEffort(settings.effort), effortLevels)
-  }, modelWhitelist, toggle("disableSameModel", "Disable same-model Advisor", "Skip advice when the active Executor and Advisor use the same provider/model; turn off to allow higher-effort same-model reviews.", settings.disableSameModel, true), toggle("scoutEnabled", "Experimental Advisor Scout", "Enable the experimental Scout before Advisor calls.", settings.scoutEnabled, false), scoutTimeoutItem(settings), toggle("showUsageDetails", "Show usage and cost details", "Show token usage and cost details in Advisor responses.", settings.showUsageDetails, true), toggle("showUsageFooter", "Show usage in footer", "Show the current Advisor usage summary in the footer.", settings.showUsageFooter, false), toggle("planGate", "Plan gate", "Ask the Advisor to review implementation plans.", settings.planGate, true), toggle("failureGate", "Failure gate", "Ask the Advisor to review repeated failures.", settings.failureGate, true), toggle("completionGate", "Completion gate", "Ask the Advisor to review work before declaring success.", settings.completionGate, true), toggle("forceSettleReview", "Force settle review", "Consult the Advisor automatically when the agent finishes, before it settles.", settings.forceSettleReview ?? true, true), toggle("collapseResponses", "Collapse long responses", "Collapse long Advisor responses in the transcript.", settings.collapseResponses, false), {
+  }, modelWhitelist, toggle("disableSameModel", "Disable same-model Advisor", "Skip advice when the active Executor and Advisor use the same provider/model; turn off to allow higher-effort same-model reviews.", settings.disableSameModel, true), toggle("scoutEnabled", "Experimental Advisor Scout", "Enable the experimental Scout before Advisor calls.", settings.scoutEnabled, false), scoutTimeoutItem(settings), toggle("showUsageDetails", "Show usage and cost details", "Show token usage and cost details in Advisor responses.", settings.showUsageDetails, true), toggle("showUsageFooter", "Show usage in footer", "Show the current Advisor usage summary in the footer.", settings.showUsageFooter, false), toggle("planGate", "Plan gate", "Ask the Advisor to review implementation plans.", settings.planGate, true), toggle("failureGate", "Failure gate", "Ask the Advisor to review repeated failures.", settings.failureGate, true), toggle("completionGate", "Completion gate", "Ask the Advisor to review work before declaring success.", settings.completionGate, true), toggle("forceSettleReview", "Force settle review", "Consult the Advisor automatically when the agent finishes, before it settles.", settings.forceSettleReview ?? true, true), toggle("requireExecutorResponse", "Require executor response", "Continue the executor on automatic settle-review concerns; requires Force settle review.", settings.requireExecutorResponse, true), toggle("collapseResponses", "Collapse long responses", "Collapse long Advisor responses in the transcript.", settings.collapseResponses, false), {
     currentValue: settings.customRule || "None",
     description: "Add a rule that triggers Advisor involvement.",
     id: "customRule",
@@ -8227,6 +8240,7 @@ var BOOLEAN_SETTING_FIELDS = [
   "disableSameModel",
   "failureGate",
   "forceSettleReview",
+  "requireExecutorResponse",
   "herdrIntegration",
   "outcomeLogging",
   "planGate",
@@ -8581,6 +8595,7 @@ var applySessionSettings = (settings) => {
   setAdvisorFailureGateRef(settings.failureGate);
   setAdvisorCompletionGateRef(settings.completionGate);
   setAdvisorForceSettleReviewRef(settings.forceSettleReview ?? true);
+  setAdvisorRequireExecutorResponseRef(settings.requireExecutorResponse ?? true);
   setAdvisorDisableSameModelRef(settings.disableSameModel ?? true);
   setAdvisorCollapseResponsesRef(settings.collapseResponses);
   setAdvisorCustomInvocationRef(settings.customRule);
@@ -9901,7 +9916,7 @@ var createSettleReview = (registration) => {
         updateAdvisorUsageStatus(ctx, session);
         const sound = isSoundVerdict(consulted.markdown);
         return {
-          continue: !sound,
+          continue: advisorRequireExecutorResponseRef && !sound,
           entries: [
             {
               content: reviewContent(consulted.markdown),

@@ -14,6 +14,7 @@ import {
   setAdvisorFailureGateRef,
   setAdvisorFailureModeRef,
   setAdvisorForceSettleReviewRef,
+  setAdvisorRequireExecutorResponseRef,
   setAdvisorGitContextMaxCharsRef,
   setAdvisorGitContextRef,
   setAdvisorHerdrIntegrationRef,
@@ -70,6 +71,9 @@ const applySessionSettings = (settings: AdvisorSettings) => {
   setAdvisorFailureGateRef(settings.failureGate);
   setAdvisorCompletionGateRef(settings.completionGate);
   setAdvisorForceSettleReviewRef(settings.forceSettleReview ?? true);
+  setAdvisorRequireExecutorResponseRef(
+    settings.requireExecutorResponse ?? true
+  );
   setAdvisorDisableSameModelRef(settings.disableSameModel ?? true);
   setAdvisorCollapseResponsesRef(settings.collapseResponses);
   setAdvisorCustomInvocationRef(settings.customRule);

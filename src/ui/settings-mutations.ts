@@ -10,6 +10,7 @@ const BOOLEAN_SETTING_FIELDS = [
   "disableSameModel",
   "failureGate",
   "forceSettleReview",
+  "requireExecutorResponse",
   "herdrIntegration",
   "outcomeLogging",
   "planGate",

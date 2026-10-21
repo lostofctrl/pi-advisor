@@ -7,6 +7,7 @@ import type {
 
 import {
   setAdvisorForceSettleReviewRef,
+  setAdvisorRequireExecutorResponseRef,
   setAdvisorMaxCallsPerSessionRef,
   setSimpleModeRef,
 } from "../src/config/state.ts";
@@ -93,11 +94,13 @@ const settleEvent = (
   ({ outcome, type: "agent_before_settle" }) as AgentBeforeSettleEvent;
 
 beforeEach(() => {
+  setAdvisorRequireExecutorResponseRef(true);
   setAdvisorForceSettleReviewRef(true);
   resetSettleReviewNotification();
 });
 
 afterEach(() => {
+  setAdvisorRequireExecutorResponseRef(true);
   setAdvisorForceSettleReviewRef(true);
   setAdvisorMaxCallsPerSessionRef(undefined);
   setSimpleModeRef(false);
@@ -154,6 +157,41 @@ describe("isSoundVerdict", () => {
 });
 
 describe("settle review", () => {
+  test("displays concerns without continuing when executor response is off", async () => {
+    setAdvisorRequireExecutorResponseRef(false);
+
+    const h = harness({
+      consultResult: async () => ({
+        adviceId: "id",
+        markdown: "Verdict: revise\n\nThe retry path is untested.",
+        model: "test/advisor",
+        thinkingText: "",
+        trigger: "settle-review",
+      }),
+    });
+
+    const review = createSettleReview(h.registration);
+    const result = await review.handle(settleEvent(), ctxWith());
+    expect(h.consultedTriggers).toEqual(["settle-review"]);
+    expect(result?.continue).toBe(false);
+    expect(settleReviewDetails(result)?.verdict).toBe("concern");
+    expect(settleReviewDetails(result)?.display).toBe(true);
+    expect(await review.handle(settleEvent(), ctxWith())).toBeUndefined();
+    expect(h.consultedTriggers).toHaveLength(1);
+  });
+
+  test("does not continue sound reviews when executor response is off", async () => {
+    setAdvisorRequireExecutorResponseRef(false);
+    const h = harness();
+
+    const result = await createSettleReview(h.registration).handle(
+      settleEvent(),
+      ctxWith()
+    );
+
+    expect(result?.continue).toBe(false);
+    expect(settleReviewDetails(result)?.verdict).toBe("sound");
+  });
   test("consults once before settling and continues when the verdict is unsound", async () => {
     const questions: (string | undefined)[] = [];
 

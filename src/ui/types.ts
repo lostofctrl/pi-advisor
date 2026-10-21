@@ -99,6 +99,7 @@ export interface AdvisorSettings {
   failureGate: boolean;
   failureMode?: GateFailureMode;
   forceSettleReview?: boolean;
+  requireExecutorResponse?: boolean;
   gitContext?: GitContextLevel;
   gitContextMaxChars?: number;
   herdrIntegration?: boolean;

@@ -10,6 +10,7 @@ import {
   setAdvisorFailureGateRef,
   setAdvisorFailureModeRef,
   setAdvisorForceSettleReviewRef,
+  setAdvisorRequireExecutorResponseRef,
   setAdvisorGitContextMaxCharsRef,
   setAdvisorGitContextRef,
   setAdvisorHerdrIntegrationRef,
@@ -85,6 +86,7 @@ export const resetDefaults = () => {
   setAdvisorFailureGateRef(true);
   setAdvisorCompletionGateRef(true);
   setAdvisorForceSettleReviewRef(true);
+  setAdvisorRequireExecutorResponseRef(true);
   setAdvisorCustomInvocationRef(undefined);
   setAdvisorDisableSameModelRef(true);
   setAdvisorCollapseResponsesRef(false);
@@ -175,6 +177,11 @@ export const applyConfig = (config: AdvisorConfig) => {
     config,
     "advisorForceSettleReview",
     setAdvisorForceSettleReviewRef
+  );
+  applyOptionalConfig(
+    config,
+    "advisorRequireExecutorResponse",
+    setAdvisorRequireExecutorResponseRef
   );
   applyOptionalConfig(
     config,

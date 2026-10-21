@@ -36,6 +36,7 @@ export let advisorPlanGateRef = true;
 export let advisorFailureGateRef = true;
 export let advisorCompletionGateRef = true;
 export let advisorForceSettleReviewRef = true;
+export let advisorRequireExecutorResponseRef = true;
 export let advisorCustomInvocationRef: string | undefined;
 export let advisorDisableSameModelRef = true;
 export let advisorCollapseResponsesRef = false;
@@ -145,6 +146,10 @@ export const setAdvisorCompletionGateRef = (enabled: boolean) => {
 
 export const setAdvisorForceSettleReviewRef = (enabled: boolean) => {
   advisorForceSettleReviewRef = enabled;
+};
+
+export const setAdvisorRequireExecutorResponseRef = (enabled: boolean) => {
+  advisorRequireExecutorResponseRef = enabled;
 };
 
 export const setAdvisorCustomInvocationRef = (rule: string | undefined) => {
@@ -367,6 +372,7 @@ export const getAdvisorSettings = () => ({
   outcomeLogging: advisorOutcomeLoggingRef,
   planGate: advisorPlanGateRef,
   redactSecrets: advisorRedactSecretsRef,
+  requireExecutorResponse: advisorRequireExecutorResponseRef,
   scoutEnabled: advisorScoutEnabledRef,
   scoutTimeoutMs: advisorScoutTimeoutMsRef,
   sessionSummary: advisorSessionSummaryRef,
